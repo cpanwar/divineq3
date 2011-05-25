@@ -1,0 +1,5 @@
+name = Divine Guru Availability
+description = Guru Availability module for entering availability from gurus.
+dependencies[] = divine_guru_package
+package = Guru
+core = 6.x

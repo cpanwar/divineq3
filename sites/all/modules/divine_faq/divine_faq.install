@@ -1,0 +1,39 @@
+<?php
+// $Id:divine_faq.install, 2011/05/10 20:07:43  Exp $
+
+/**
+  * @file
+  * Describes Question Answer tables
+  */
+
+function divine_faq_schema() {
+  $schema['divine_questions'] = array(
+      'fields' => array(
+           'qid' => array('type' => 'serial', 'not null' => TRUE),
+           'question' => array('type' => 'text', 'not null' => TRUE),
+           'uid' => array('type' => 'int', 'not null' => TRUE, 'default' => 0),
+           'timestamp' => array('type' => 'int', 'not null' => TRUE, 'disp-width' => '11')
+	   ),
+     'primary key' => array('qid'),
+  );
+  $schema['divine_questions_answers'] = array(
+      'fields' => array(
+		   'aid' => array('type' => 'serial', 'not null' => TRUE),
+           'qid' => array('type' => 'int', 'not null' => TRUE),
+           'uid' => array('type' => 'int', 'not null' => TRUE, 'default' => 0),
+		   'answer' => array('type' => 'text', 'not null' => TRUE),
+           'timestamp' => array('type' => 'int', 'not null' => TRUE, 'disp-width' => '11'),
+	   ),
+	 'primary key' => array('aid'),	   
+  );
+  return $schema;
+}
+
+function divine_faq_install() {
+  drupal_install_schema('divine_faq');
+}
+
+
+function divine_faq_uninstall() {
+  drupal_uninstall_schema('divine_faq');
+}

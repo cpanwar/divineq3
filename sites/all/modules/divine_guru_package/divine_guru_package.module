@@ -1,0 +1,252 @@
+<?php
+/**
+ * Implementation of hook_perm().
+ */
+function divine_guru_package_perm() {
+  return array('select gurupackages','manage mapping');
+}
+
+/**
+ * Implementation of hook_access().
+ */
+function divine_guru_package_access($op, $account) {
+  if ($op == 'create') {
+    return user_access('select gurupackages');
+  }
+  elseif ($op == 'update') {
+    if (user_access('select gurupackages')) {
+      return TRUE;
+    }
+    else {
+      return NULL;
+    }
+  } 
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function divine_guru_package_menu() {
+
+  $items = array();
+
+	$items['guru-package/package'] = array(
+	'title' => 'Select Packages For You',
+	'description' => 'Select package',
+	'page callback' => 'enter_mapping_form',
+	'page arguments' => array(2),
+	'access arguments' => array('select gurupackages'),
+	);
+
+	$items['guru-package/add-mapping'] = array(
+	'page callback' => 'save_mapping',
+	'access arguments' => array('manage mapping'),
+	);
+
+  return $items;
+}
+
+/**
+ * This function is used to check whether the user is of 'expert' role or not
+ */
+function check_user_role(){
+  global $user;
+  $uid=$user->uid;
+  $role='expert';
+  
+  $role_name='';
+  $flag=0;
+  $query="select trim(lcase(r.name)) as name from {role} r, {users_roles} ur where ur.rid=r.rid and ur.uid=%d";
+  $db_result = db_query($query,$uid);
+  while ($row = db_fetch_object($db_result)) {
+     $role_name=$row->name;
+     if($role_name==$role){
+        $flag=1;
+     }
+  }
+
+  if($flag){
+   return true;
+  }
+  else{
+   return false;
+  }
+}
+
+/**
+ * This function is used to display UI where user can select/de-select packages created by admin.
+ */
+function enter_mapping_form($error='') {
+  
+  $module_path=drupal_get_path('module', 'divine_guru_package');
+  /*Add css and js files for popup functionality*/
+  drupal_add_js($module_path.'/validation.js','module');
+
+  global $user,$base_url;
+  $uid=$user->uid;
+
+  if(!check_user_role()){
+    return 'You are not authorised to access this feature';
+  }
+
+  $check_all='<input type="checkbox" name="mapping_chk_all" onclick="checkAll(this.checked);" />&nbsp;';
+
+  $header=array(array('data'=>$check_all,'style'=>'width:9%'),t('Package'));
+  
+  /*FETCH LIST OF PACKAGES (standard type:(package_type => 1))*/
+  /*$query="select p.packageid,p.packagename,IF(dgp.uid IS NULL,0,1) as mapped
+          from {package} p
+	  LEFT JOIN {divine_guru_package} dgp ON (dgp.packageid=p.packageid AND dgp.uid=%d)
+          where p.package_type=1 
+	 ";
+  */
+  $query="select 
+            DISTINCT n.nid,
+	    IF(dgp.uid IS NULL,0,1) as mapped
+          from 
+	  {node} n
+	  LEFT JOIN {divine_guru_package} dgp ON (dgp.packageid=n.nid AND dgp.uid=%d)
+	  where n.type='product'
+	  ";
+  $db_result = db_query($query,$uid);
+
+  $rows=array();
+  $flag=false;
+  while ($row = db_fetch_object($db_result)) {
+      $flag=true;
+      $checked='';
+      $style='';
+      if($row->nid==$error){
+        $style='style="border:1px solid red"';
+      }
+      $nodeArr=node_load($row->nid);
+      //echo '<pre>';
+      //print_r($nodeArr);
+      if($row->mapped=='1'){
+       $checked='checked';
+      }
+      if(file_exists($nodeArr->picture)){
+          $image='<img src="'.$base_url.'/'.$nodeArr->picture.'" />';
+      }
+      else{
+         $image='<img src="'.$base_url.'/sites/default/noimage.png" />';
+      }
+      //field_diet_charts
+      $data='<fieldset><legend></legend><table border="0" cellpadding="0" cellspacing="0">
+              <tr><td colspan="2">'.t($nodeArr->title).'</td></tr>
+	      <tr><td rowspan="4" width="15%">'.$image.'<td><tr>
+	      <tr><td>'.$nodeArr->body.'</td></tr>
+	      <tr>
+	        <td>
+		   <b>Validity:</b>'.$nodeArr->field_validity[0]['value'].' Days &nbsp;
+		   <b>Price:</b>'.$nodeArr->sell_price.' &nbsp;
+		   <b>Live Sessions:</b>'.$nodeArr->field_live_sessions[0]['value'].' &nbsp;
+		</td>
+		</tr>
+             </table></fieldset>'; 
+      $checkbox='<input type="checkbox" name="mapping_chk[]" value="'.$row->nid.'" '.$checked.'  '.$style.' />';
+      $rows[]=array($checkbox,$data);
+  }
+  /*FETCH LIST OF PACKAGES (standard type)*/
+
+  if(!$flag){
+    $rows[]=array(
+                    array('data'=>'<b>No Packages Found</b>','colspan'=>2,'style'=>'text-align:center')
+		 );
+    $form_start='';
+    $submit_button='';
+    $form_end='';
+    $js='';
+  }
+  else{
+    $form_start='<form name="mapping_form" method="post" action="'.$base_url.'/guru-package/add-mapping" onsubmit="return checkData();">';
+    $submit_button='<div style="text-align:center"><input type="submit" name="save_mapping_button" value="Save" /></div>';
+
+    $form_end='</form>';
+  }
+
+  return $form_start
+         .theme('table', $header, $rows)
+	 .$submit_button
+	 .$form_end;
+}
+
+/**
+ * This function is used for server side checking of user entered data
+ * save mapping of packages with gurus
+ */
+function save_mapping(){
+  global $user;
+  $uid=$user->uid;
+
+  if(!check_user_role()){
+    return 'You are not authorised to access this feature';
+  }
+  
+  $mapping_chk=$_POST['mapping_chk'];
+  if($mapping_chk==''){
+   $mapping_chk=array();
+  }
+  $count=count($mapping_chk);
+
+  /*FETCH RECORDS FROM AVAILIBILITY TABLE WHICH ARE BOOKED BY NORMAL USERS*/
+   $query="select dgb.packageid
+           from {divine_guru_availability} ga , {divine_guru_booking} dgb
+	   where ga.uid=%d and ga.isAvailable=0 and ga.dated>now()
+	   and ga.aid=dgb.aid";
+     
+   $db_result = db_query($query,$uid);
+
+   $booked_records=array();
+   while ($row = db_fetch_object($db_result)) {
+        $booked_records[] = $row->packageid;
+   }
+   $booked_count=count($booked_records);
+   for($i=0; $i<$booked_count; $i++){
+      if(!in_array($booked_records[$i],$mapping_chk)){
+       /***May be we need to send mail to affected users about that***/
+       drupal_set_message("Some user booked classes corresponding to this package.You can not de-assign yourself from this package.");
+       drupal_goto('guru-package/package/'.$booked_records[$i]);
+     }      
+   }
+
+
+  //DELETE UNCHEKED RECORDS(excluding packages who are ticked and not booked)
+   $delete_query='';
+   $excluded_packages=implode(',',$mapping_chk);
+   if($excluded_packages!=''){
+     $excluded_packages_condition=' AND packageid not in ('.$excluded_packages.')';
+   }
+   $delete_query="delete from {divine_guru_package} 
+                 where uid=%d $excluded_packages_condition";
+   db_query($delete_query,$uid);
+
+
+  /*INSERT QUERY*/
+  $insert_query='';
+  for($i=0; $i<$count; $i++){
+     
+     $packageid=$mapping_chk[$i];
+     $query="select gpid from {divine_guru_package} where uid=%d and packageid=%d";
+     $db_result = db_query($query,$uid,$packageid);
+     $gpid='';
+     while ($row = db_fetch_object($db_result)) {
+      $gpid = $row->gpid;
+     }
+     if($gpid==''){
+       //do the insertion
+       $insert_query ="insert into {divine_guru_package} (uid,packageid)
+                      values (%d,%d)";
+       db_query($insert_query,$uid,$packageid);
+     }
+  }
+
+  if($count>0){
+   drupal_set_message('Mapping of packages is successful');
+  }
+  else{
+   drupal_set_message('De-assigning of packages is successful');
+  }
+  drupal_goto('guru-package/package/0');
+}
+?>

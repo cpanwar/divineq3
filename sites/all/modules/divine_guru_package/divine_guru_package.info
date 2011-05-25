@@ -1,0 +1,4 @@
+name = Divine Guru Package Mapping 
+description = Assign/De-assign Gurus with/from Packages.
+package = Guru
+core = 6.x

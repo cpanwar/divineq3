@@ -1,0 +1,5 @@
+name = Divine Guru Booking
+description = Guru Booking Module for normal users.
+dependencies[] = divine_guru_availability
+package = Guru
+core = 6.x

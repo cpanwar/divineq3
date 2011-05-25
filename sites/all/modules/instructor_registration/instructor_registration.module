@@ -1,0 +1,264 @@
+<?php
+/*
+ * Implementation of hook_menu
+*/
+function instructor_registration_menu() {	
+	$items['user/instructor/register'] = array(
+		'title' => 'Create instructor account',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('user_instructor_register_form'),
+		'access callback' => 'user_register_access',
+		'type' => MENU_LOCAL_TASK,
+	);
+	$items['admin/user/user/instructor'] = array(
+		'title' => 'Add Instructor',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('user_instructor_register_form'),
+		'access arguments' => array('administer users'),
+		'type' => MENU_LOCAL_TASK,
+		'file' => 'user.admin.inc',
+		'file path' => drupal_get_path('module', 'user'),
+	);	
+	return $items;
+}
+
+/*
+ * Implementation of Instructor registration form
+*/ 
+function user_instructor_register_form() {
+	global $user;
+	$form['name'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Username'),
+		'#size' => 60,
+		'#required' => TRUE,
+		'#weight' => -4,
+	);
+	$form['mail'] = array(
+		'#type' => 'textfield',
+		'#title' => t('E-mail address'),
+		'#size' => 60,
+		'#required' => TRUE,
+		'#weight' => -3,
+	);
+	$form[instructor_info] = profile_form_profile($edit, $user, 'Instructor Information', $register = FALSE);  
+	$settings = variable_get('location_settings_user', array());
+	$form['locations'] = location_form($settings, $account->locations);
+    $form['timezone'] = array(
+      '#type' => 'hidden',
+      '#default_value' => variable_get('date_default_timezone', NULL),
+      '#id' => 'edit-user-register-timezone',
+    );
+	$options = fetch_timezone();
+	$form[user_timezone] = array(
+		'#type' => 'select',
+		'#title' => t('Timezone'),
+		'#default_value' => '',
+		'#options' => $options,
+
+	);
+	// setup picture upload in registration form
+	if (variable_get('user_pictures', 0)) {
+		$form['#attributes']['enctype'] = 'multipart/form-data';
+		$form['picture'] = array(
+			'#type' => 'fieldset', 
+			'#title' => t('Picture'), 
+			'#weight' => -1
+		);
+		$form['picture']['picture_upload_register'] = array(
+			'#type' => 'file', 
+			'#title' => t('Upload picture'), 
+			//'#required' => TRUE,	
+			//#default_value' => 0;
+			'#description' => t('<br>Your virtual face or picture. Maximum dimensions are %dimensions and the maximum size is %size kB.', array('%dimensions' => variable_get('user_picture_dimensions', '85x85'), '%size' => variable_get('user_picture_file_size', '30'))) .' '. variable_get('user_picture_guidelines', '')
+		);
+		$form['picture']['pic_selected'] = array(
+			'#type' => 'hidden',
+			'#default_value' => 0
+		);	
+		$form['picture']['picture_upload_register']['#attributes']['onchange'] = "$('#edit-pic-selected').val(1);";
+	}		
+	$form[] = array(
+		'#type' => 'submit',
+		'#value' => t('Save'),
+	);
+  return $form;
+}
+
+/**
+ * Implementation of hook_validate().
+ */
+ 
+function user_instructor_register_form_validate($form, &$form_state) { 
+	user_module_invoke('validate', $form_state['values'], $form_state['values'], 'account');
+}
+
+/**
+ * Implementation of hook_submit().
+ */
+function user_instructor_register_form_submit($form, &$form_state) {
+	$pass = user_password();
+	$user_timezone = $form_state['values']['user_timezone'];
+	$instructor_user = array(
+	  'name' => $form_state['values']['name'],
+	  'mail' => $form_state['values']['mail'],
+	  'picture' => '',
+	  'timezone' => $form_state['values']['timezone'],
+	  'profile_inst_fname' => $form_state['values']['profile_inst_fname'],
+	  'profile_inst_lname' => $form_state['values']['profile_inst_lname'],
+	  'profile_inst_certification' => $form_state['values']['profile_inst_certification'],
+	  'profile_inst_styles' => $form_state['values']['profile_inst_styles'],
+	  'profile_inst_teaching_exp' => $form_state['values']['profile_inst_teaching_exp'],
+	  'profile_inst_desc' => $form_state['values']['profile_inst_desc'],
+	  'pass' => $pass,
+	);	
+	$auto_user = user_save('', $instructor_user);
+	$rid = get_role_id($role='expert'); // Assign Role ID (per rtype)
+	$uid = $auto_user->uid;
+	$user = user_load($uid);
+
+	$file = file_save_upload('picture_upload_register');
+	$info = image_get_info($file->filepath);
+	// save picture to correct path and update the row in the user table
+	$destination = variable_get('user_picture_path', 'pictures') .'/picture-'. $user->uid .'.'. $info['extension'];
+	if (file_copy($file, $destination, FILE_EXISTS_REPLACE)) {
+		db_query("UPDATE {users} SET picture='%s' WHERE uid=%d", $file->filepath, $user->uid);
+	}
+		
+	// Update timezone filed in user tables
+	db_query("UPDATE {users} SET tid=%d WHERE uid=%d", $user_timezone, $user->uid);
+	
+	$locations = array();
+	$locations = $form_state['values']['locations'];	
+	location_save_locations($locations, array('uid' => $uid));	
+	db_query('INSERT INTO {users_roles} (uid, rid) VALUES (%d, %d)', $uid, $rid);
+	
+	// For mail template at Instructor registration
+	$to =  $form_state['values']['mail'];
+	$body = "Thank you for registering. Your application for an account is currently pending approval. Once it has been approved, you will receive another e-mail containing information about how to log in, set your password, and other details.";
+	$params = array(
+					'body' => $body,
+					'subject' => 'Account details for '.$user->name.' at '.!site.' (pending admin approval)',
+	);
+	drupal_set_message(t('Thank you for applying for an account. Your account is currently pending approval by the site administrator. In the meantime, a welcome message with further instructions has been sent to your e-mail address.'));	
+	drupal_mail('instructor_registration', 'register_approval_required', $to, language_default(), $params, variable_get('site_mail', ini_get('sendmail_from')));
+	
+	
+}
+
+/*
+ * Implementation of hook_user
+*/
+function instructor_registration_user($op, &$edit, &$account, $category = NULL){
+	global $user;
+	switch ($op) {
+		case 'insert':
+				if($user->uid!='1' && arg(0)=='user' && arg(1)=='register'){
+					$get_rid = get_role_id($role='member');
+					$edit['roles'] += array($get_rid => 'member');
+				}
+				if((arg(0)=='user' && arg(1)!='instructor')){
+					db_query("UPDATE {users} SET tid='%d' WHERE uid=%d", $edit['user_timezone'], $edit['uid']);	
+				}	
+		break;		
+		case 'update':
+				if(($user->uid==$account->uid) || ($user->uid!=$account->uid && arg(2)=='edit')){
+					db_query("UPDATE {users} SET tid='%d' WHERE uid=%d", $edit['user_timezone'], $account->uid);	
+				}	
+		break;		
+	}
+}
+
+/*
+ * Implementation of hook_form_alter
+*/
+function instructor_registration_form_alter(&$form, &$form_state, $form_id){
+	global $user;
+	$account  = user_load(arg(1));
+	
+	if($form_id=='user_register'){
+		if(empty($user->uid)){
+			$form[personal_info] = profile_form_profile($edit, $user, 'Personal Information', $register = FALSE);
+		}
+		//unset($form['timezone']);
+		$options = fetch_timezone();
+		$form['user_timezone'] = array(
+			'#type' => 'select',
+			'#title' => t('Timezone'),
+			'#default_value' => $account->tid,
+			'#options' => $options,
+			'#weight' => 10,
+		);		
+	}
+	
+	if($form_id=='user_profile_form'){
+		unset($form['timezone']);
+		$options = fetch_timezone();
+		$form['user_timezone'] = array(
+			'#type' => 'select',
+			'#title' => t('Timezone'),
+			'#default_value' => $account->tid,
+			'#options' => $options,
+			'#weight' => 10,
+		);
+	}
+}
+
+/*
+ * hook_mail
+*/
+function instructor_registration_mail($key, &$message, $params) {	
+  switch($key) {
+    case 'register_approval_required':         
+      // define subject and body
+      $message['subject'] = $params['subject'];
+      $message['body'] = $params['body'];;       
+      break;
+  }
+}
+
+/*
+ * Fetch timezone array from database
+*/
+
+function fetch_timezone(){
+	$query="select tid,name,offsettime,if(offsetsign=1,'+','-') as offsetsign from {divine_timezone}" ; 
+	$db_result=db_query($query);
+	$rs = array();
+	while ($row = db_fetch_object($db_result)){
+		$rs[$row->tid] = $row->name.' (UTC '.$row->offsetsign.' '.$row->offsettime.')';
+	}
+	return $rs;
+}
+
+
+
+
+/*
+ * Implementation get role id from role
+ */
+function get_role_id($role){
+	$rid = db_result(db_query("SELECT rid from role WHERE name='%s'", $role));
+	return $rid;
+}
+
+/*
+ * Implementation of get user unique role
+*/
+function getUsersUniqueRole($uid){
+	$role = db_result(db_query("SELECT r.name FROM users u, role r, users_roles ur WHERE u.uid = ur.uid AND ur.rid = r.rid AND u.uid =%d", $uid));
+	return $role;
+} 
+ 
+/*
+ * Implementation of Guru package listing 
+*/ 
+function expertPackage($uid){
+	$query_package = db_query("SELECT n.nid from node n, divine_guru_package d_gp WHERE d_gp.packageid = n.nid AND n.status = %d AND d_gp.uid=%d", 1, $uid);
+	while ($package = db_fetch_object($query_package)){
+		$rs[] = $package->nid;
+	}
+	return $rs;
+
+}
+?>

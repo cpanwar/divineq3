@@ -1,0 +1,3 @@
+name = Divine Question
+description = Question module for one question with multiple answer.
+core = 6.x

@@ -1,0 +1,447 @@
+<?php
+/**
+ * Implementation of hook_perm().
+ */
+function divine_faq_perm() {
+  return array('ask questions', 'answer questions','delete questions','manage questions');
+}
+
+/**
+ * Implementation of hook_access().
+ */
+function divine_faq_access($op, $account) {
+  if ($op == 'create') {
+    return user_access('ask questions');
+  }
+  elseif ($op == 'update') {
+    if (user_access('ask questions')) {
+      return TRUE;
+    }
+    else {
+      return NULL;
+    }
+  } 
+}
+
+function divine_faq_menu() {
+
+  $items = array();
+
+	$items['divine-faq/question'] = array(
+	'title' => 'Ask a question',
+	'description' => 'Post a question to be answered',
+	'page callback' => 'divine_question_add',
+	'access arguments' => array('ask questions'),
+	);
+
+	$items['divine-faq/faq-add'] = array(
+	'page callback' => 'divine_faq_add',
+	'access arguments' => array('ask questions'),
+	);
+
+	$items['divine-faq/answer/%'] = array(
+	'title' => 'Answer',
+	'description' => 'Post a answer assoicate question',
+	'page callback' => 'divine_answer_add',
+	'access arguments' => array('answer questions'),
+	);  
+
+	$items['divine-faq/faq-list'] = array(
+		'title' => 'Question list',
+		'type' => MENU_CALLBACK,
+		'access arguments' => array('access content'),
+		'page callback' => 'display_faqs_page');
+	
+	$items['admin/divine-faq/admin-faq-list'] = array(
+		'title' => 'Question list',
+		'type' => MENU_CALLBACK,
+		'access arguments' => array('manage questions'),
+		'page callback' => 'display_faqs_page_admin');
+
+	$items['divine-faq/faq-details/%'] = array(
+		'title' => 'Answer list',
+		'type' => MENU_CALLBACK,
+		'access arguments' => array('access content'),
+		'page callback' => 'display_faq_details',
+		'page arguments' => array(2)
+	);
+
+	$items['divine-faq/faq-delete/%'] = array(
+		'type' => MENU_CALLBACK,
+		'access arguments' => array('delete questions'),
+		'page callback' => 'delete_faq_details',
+		'page arguments' => array(2)
+	);
+   
+  return $items;
+}
+
+function divine_question_add() {
+	// initial form...
+	$output = '';
+	$output .= drupal_get_form('divine_question_form');
+	print theme('page', $output);
+	return;
+}
+
+
+function divine_answer_add(){
+	// initial form...
+	$output = '';
+	$output .= drupal_get_form('divine_answer_form');
+	print theme('page', $output);
+	return;
+}
+
+
+function divine_question_form() {
+  global $user;
+  
+  $form['question'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Question'),
+    '#default_value' => $_POST['question'],
+    '#description' => NULL,
+    '#required' => TRUE,
+  );
+  $form[] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit Question'),
+  );
+ 
+  return $form;
+}
+
+function divine_answer_form() {
+  global $user;
+	//echo "<pre>";print_r(arg());
+	if (is_numeric(arg(2))) {
+		$query = db_fetch_object(db_query('SELECT * FROM {divine_questions} WHERE qid = %d', arg(2)));
+		$qid = $query->qid;
+		$question = $query->question;
+	}
+	
+	if(!empty($qid)){	
+		$form['qid'] = array(
+		  '#type' => 'hidden',
+		  '#value' => $qid,
+		);
+
+		$form['title'] = array(
+		  '#type' => 'textfield',
+		  '#title' => 'Question',
+		  '#required' => TRUE,
+		  '#default_value' => $question,
+		  '#attributes' => array('readonly' => 'readonly'),
+		);
+	  
+	  $form['answer'] = array(
+		'#type' => 'textarea',
+		'#title' => t('Answer'),
+		'#default_value' => $_POST['answer'],
+		'#cols' => 60,
+		'#rows' => 10,
+		'#description' => NULL,
+		'#required' => TRUE,
+	  );
+	  $form[] = array(
+		'#type' => 'submit',
+		'#value' => t('Submit Answer'),
+	  );
+	 
+	  return $form;
+	}  
+}
+
+/**
+ * Implementation of hook_validate().
+ */
+function divine_question_form_validate($form, &$form_state) { 
+	if ($form_state['values']['question'] == '') {
+		form_set_error('question', t('Please enter a question.'));
+	}
+}
+
+function divine_answer_form_validate($form, &$form_state) { 
+	if ($form_state['values']['answer'] == '') {
+		form_set_error('answer', t('Please enter a answer of the question.'));
+	}
+}
+
+/**
+ * Implementation of hook_submit().
+ */
+function divine_question_form_submit($form, &$form_state) {
+	global $user;
+	if($user->uid==0 or $user->uid==''){
+	  $_SESSION['question_text']=$form_state['values']['question'];
+	  drupal_goto('user/login' , 'destination=divine-faq/faq-add');
+	}
+	$time = time();
+	db_query("INSERT INTO {divine_questions} (question, uid, timestamp) VALUES ('%s', %d, '%s')", $form_state['values']['question'], $user->uid, $time);
+	drupal_goto('divine-faq/faq-list');
+}
+
+function divine_faq_add(){
+  global $user;
+  $question=trim($_SESSION['question_text']);
+  if($question==''){
+     drupal_goto('divine-faq/faq-list');
+  }
+  $time = time();
+  db_query("INSERT INTO {divine_questions} (question, uid, timestamp) VALUES ('%s', %d, '%s')", $question, $user->uid, $time);
+  $_SESSION['question_text']='';
+  unset($_SESSION['question_text']);
+  drupal_goto('divine-faq/faq-list');
+}
+
+function divine_answer_form_submit($form, &$form_state) {
+	//echo "<pre>";print_r($form_state);exit;
+	global $user;
+	$time = time();
+	$qid = $form_state['values']['qid'];
+	db_query("INSERT INTO {divine_questions_answers} (qid, uid, answer, timestamp) VALUES (%d, %d, '%s', '%s')", $qid, $user->uid, $form_state['values']['answer'], $time);
+	$path = "divine-faq/faq-details/".$qid;
+	drupal_goto($path);
+}
+
+
+function display_faqs_page()
+{
+
+    
+    $header = array(
+                    array('data'=>t('Question'),'field'=>'question','sort'=>'asc','style' => 'white-space: nowrap;' ),
+					array('data'=>t('Asked By'),'field'=>'name' , 'style' => 'white-space: nowrap;'),
+					array('data'=>t('Date'),'field'=>'timestamp' , 'style' => 'white-space: nowrap;' ),
+					array('data'=>t('Tot. Ans.'),'field'=>'answer_count' , 'style' => 'white-space: nowrap;' ),
+					t('Details'),
+					array('data'=>t('Give Ans.'),'style'=>'white-space: nowrap')
+				);
+    $rows=array();
+
+    $query="select 
+                                   q.qid,q.question,q.timestamp,u.name,
+                                   (select count(*) from {divine_questions_answers} a where a.qid=q.qid) as answer_count
+                            from 
+                                   {divine_questions} q, {users} u
+                            where
+                                   q.uid=u.uid";
+
+    $query .= tablesort_sql($header);
+
+    $total_query="select 
+                                   count(q.qid)
+                            from 
+                                   {divine_questions} q, {users} u
+                            where
+                                   q.uid=u.uid";
+    
+    $nodes_per_page = 5; 
+
+    $query_result = pager_query($query,$nodes_per_page,0,$total_query);
+     
+    $rows = array();
+    $flag=0;
+
+    while ($links = db_fetch_object($query_result)) {
+      $flag=1;
+      $rows[] =array( 
+                     //l(substr($links->question,0,100), 'node/'.$links->nid),
+		     t(substr($links->question,0,100)),
+		     t($links->name),
+		     array('data'=>t(format_date($links->timestamp,'short')),'style'=>''),
+		     array('data'=>t($links->answer_count),'style'=>'text-align:right'),
+		     array('data'=>l(t('View'),'divine-faq/faq-details/'.$links->qid)),
+		     array('data'=>l(t('Give Answer'),'divine-faq/answer/'.$links->qid))
+		    );
+    }
+    if(!$flag){
+      $rows=array(); 
+      $rows[]=array(
+                    array('data'=>'<b>No questions found</b>','colspan'=>6,'style'=>'text-align:center')
+		   );
+      return theme_table($header, $rows);
+    }
+    return theme('table', $header, $rows).theme('pager', NULL, $nodes_per_page,0);
+}
+
+
+function display_faqs_page_admin()
+{
+
+    global $base_url;
+    $header = array(
+                    array('data'=>t('Question'),'field'=>'question','sort'=>'asc','style' => 'white-space: nowrap;' ),
+					array('data'=>t('Asked By'),'field'=>'name' , 'style' => 'white-space: nowrap;'),
+					array('data'=>t('Date'),'field'=>'timestamp' , 'style' => 'white-space: nowrap;' ),
+					array('data'=>t('Tot. Ans.'),'field'=>'answer_count' , 'style' => 'white-space: nowrap;' ),
+					t('Details'),
+					array('data'=>t('Give Ans.'),'style'=>'white-space: nowrap'),
+					array('data'=>t('Del.'),'style'=>'white-space: nowrap')
+				);
+    $rows=array();
+
+    $query="select 
+                                   q.qid,q.question,q.timestamp,u.name,
+                                   (select count(*) from {divine_questions_answers} a where a.qid=q.qid) as answer_count
+                            from 
+                                   {divine_questions} q, {users} u
+                            where
+                                   q.uid=u.uid";
+
+    $query .= tablesort_sql($header);
+
+    $total_query="select 
+                                   count(q.qid)
+                            from 
+                                   {divine_questions} q, {users} u
+                            where
+                                   q.uid=u.uid";
+    
+    $nodes_per_page = 5; 
+
+    $query_result = pager_query($query,$nodes_per_page,0,$total_query);
+     
+    $rows = array();
+    $flag=0;
+
+    while ($links = db_fetch_object($query_result)) {
+      $flag=1;
+      $rows[] =array( 
+                     //l(substr($links->question,0,100), 'node/'.$links->nid),
+		     t(substr($links->question,0,100)),
+		     t($links->name),
+		     array('data'=>t(format_date($links->timestamp,'short')),'style'=>''),
+		     array('data'=>t($links->answer_count),'style'=>'text-align:right'),
+		     array('data'=>l(t('View'),'divine-faq/faq-details/'.$links->qid)),
+		     array('data'=>l(t('Give Answer'),'divine-faq/answer/'.$links->qid)),
+		     //array('data'=>l(t('Delete'), '', array('attributes' => array('id' => 'refresh-link-id', 'class' => 'refresh-link'))))
+		     array('data'=>'<a href="javascript:void(0);" onclick="confirm_delete('.$links->qid.')">Delete</a>')
+		    );
+    }
+    if(!$flag){
+      $rows=array(); 
+      $rows[]=array(
+                    array('data'=>'<b>No questions found</b>','colspan'=>7,'style'=>'text-align:center')
+		   );
+      return theme_table($header, $rows);
+    }
+    /*Javascript (Later we will move it js file)*/
+    $js = '<script language="javascript">
+              function confirm_delete(id){
+	        if(!confirm("Do you want to delete this question ?")){
+		  return false;
+		}
+		window.location="'.$base_url.'/divine-faq/faq-delete/"+id;
+	      }
+    </script>';
+
+    return $js.theme('table', $header, $rows).theme('pager', NULL, $nodes_per_page,0);
+}
+
+
+function display_faq_details($qid)
+{
+    global $base_url;
+    $qid=trim($qid);
+    if($qid=='' or !is_numeric($qid)){
+      drupal_goto($base_url.'/divine-faq/faq-list');
+    }
+
+    $header = array(
+                    array('data'=>t('Answered By'),'field'=>'answered_by','sort'=>'asc','style' => 'white-space: nowrap;width:20%' ),
+		    array('data'=>t('Answer'),'field'=>'answer' , 'style' => 'white-space: nowrap;'),
+		    array('data'=>t('Dated'),'field'=>'answered_timestamp' , 'style' => 'white-space: nowrap;' )
+		   );
+    $header_question=array(
+                           array('data' => t('Question'),'style'=>'width:75%;white-space: nowrap;'),
+			   array('data' => t('Details'),'style'=>'white-space: nowrap;'),
+			  );
+    $rows_question=array();      
+
+    $rows=array();
+    
+    //fetch question details
+    $query="select 
+		   q.qid,q.question,q.timestamp,u.name
+	    from 
+		   {divine_questions} q, {users} u
+	    where
+		   q.uid=u.uid
+		   and q.qid=$qid";
+    $query_result=db_query($query);
+    
+    while ($links = db_fetch_object($query_result)) {
+      $rows_question[]=array(
+                              t($links->question),
+                              t($links->name.'<br/>'.format_date($links->timestamp,'short')) 
+                             );
+    }
+
+
+    //fetch answers details
+    $query="select 
+		    a.answer,u2.name as answered_by,a.timestamp as answered_timestamp,u2.uid,
+		    IF(ur.uid IS NULL,'',r.name) as role_name
+	    from 
+		   {divine_questions} q, {users} u1,{divine_questions_answers} a,
+		   {users} u2
+		   LEFT JOIN {users_roles} ur ON ur.uid=u2.uid
+		   LEFT JOIN {role} r ON r.rid=ur.rid
+	    where
+		   q.uid=u1.uid
+		   and q.qid=a.qid
+		   and a.uid=u2.uid
+		   and q.qid=$qid";
+
+
+    $total_query="select 
+                          count(a.qid)
+                  from 
+		          {divine_questions} q, {users} u1,{divine_questions_answers} a,
+		          {users} u2
+			  LEFT JOIN {users_roles} ur ON ur.uid=u2.uid
+			  LEFT JOIN {role} r ON r.rid=ur.rid
+ 	          where
+		          q.uid=u1.uid
+		          and q.qid=a.qid
+		          and a.uid=u2.uid
+			  and q.qid=$qid";
+    
+    $nodes_per_page = 5; 
+
+    $query_result = pager_query($query,$nodes_per_page,0,$total_query);
+     
+    $rows = array();
+    $flag=0;
+
+    while ($links = db_fetch_object($query_result)) {
+      $flag=1;
+      $icon='';
+      $role_name=strtolower(trim($links->role_name));
+      if($role_name=='expert'){
+        $icon='<img src="'.base_path().path_to_theme() .'/images/expert.png" alt="Expert" border="0" style="margin-bottom:-3px;width:15px; height:15px;" />&nbsp;';
+      }
+      $rows[] =array( 
+		     array('data'=> $icon.substr($links->answered_by,0,100)),
+		     array('data'=> t($links->answer)),
+		     array('data'=> t(format_date($links->answered_timestamp,'short')))
+		    );
+    }
+    if(!$flag){
+      $rows=array(); 
+      $rows[]=array(
+                    array('data'=>'<b>No answers found for this question</b>','colspan'=>3,'style'=>'text-align:center')
+		   );
+    }
+  return theme('table', $header_question, $rows_question).theme('table', $header, $rows).theme('pager', NULL, $nodes_per_page,0);
+}
+
+function delete_faq_details($qid) {
+	db_query("DELETE FROM {divine_questions_answers} WHERE qid = %d", $qid);
+	db_query("DELETE FROM {divine_questions} WHERE qid = %d", $qid);
+	drupal_set_message('Question deleted');
+	drupal_goto('admin/divine-faq/admin-faq-list');
+}
+?>
