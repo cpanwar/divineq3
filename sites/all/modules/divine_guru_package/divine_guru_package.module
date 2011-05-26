@@ -31,7 +31,7 @@ function divine_guru_package_menu() {
   $items = array();
 
 	$items['guru-package/package'] = array(
-	'title' => 'Select Packages For You',
+	'title' => 'Subscribe/Unsubscribe Packages',
 	'description' => 'Select package',
 	'page callback' => 'enter_mapping_form',
 	'page arguments' => array(2),
@@ -133,7 +133,7 @@ function enter_mapping_form($error='') {
       }
       //field_diet_charts
       $data='<fieldset><legend></legend><table border="0" cellpadding="0" cellspacing="0">
-              <tr><td colspan="2">'.t($nodeArr->title).'</td></tr>
+              <tr><td colspan="2">'.l(t($nodeArr->title),'node/'.$row->nid).'</td></tr>
 	      <tr><td rowspan="4" width="15%">'.$image.'<td><tr>
 	      <tr><td>'.$nodeArr->body.'</td></tr>
 	      <tr>

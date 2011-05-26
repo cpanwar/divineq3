@@ -129,13 +129,40 @@ function enter_availability_form($month_counter=0,$error='') {
   $prev_month_counter='';
   $next_month_counter='';
   $current_month_counter='';
+  
+  //FETCH TIME ZONE INFORMATION
+  $query="select t.name from {divine_timezone} t, {users} u where t.tid=u.tid and u.uid=%d";
+  $db_result = db_query($query);
+  
+  $timezoneFlag = 0 ;
+  $timezone_name='---';
+  while ($row = db_fetch_object($db_result)) {
+    $timezoneFlag = 1;
+    $timezone_name = $row->name;
+  }
+
+  $editTimezoneLink = l('Edit your time zone','user/'.$uid.'/edit');
+  $timezoneDivString = '<div style="width:100%">
+                         <div style="width:70%;float:left;">
+			  Your Time Zone is : <b>'.$timezone_name.'</b>&nbsp;&nbsp;
+			 </div>
+			 <div style="float:right">
+			  '.$editTimezoneLink.'
+			 </div>
+			</div><div style="clear:both"></div>';
+
+  if(!$timezoneFlag){ // if no time zone is selected then do not allow to proceed
+    $addTimezoneLink = l('Click on this link to add your time zone.','user/'.$uid.'/edit');
+    return 'You need to add your time zone to use this feature.&nbsp;&nbsp;'.$addTimezoneLink;
+  }
+
   if($month_counter>0){
-   $prev_month_counter='<div style="float:left;width:33%">'.l(t('Previous Month'),'guru-availability/display-availability/'.($month_counter-1)).'</div>';
+   $prev_month_counter='<div style="float:left;width:33%">'.l(t('<< Previous Month'),'guru-availability/display-availability/'.($month_counter-1)).'</div>';
   }
   else{
     $prev_month_counter='<div style="float:left;width:33%">&nbsp;</div>';
   }
-  $next_month_counter='<div style="float:right;width:33%;text-align:right">'.l(t('Next Month'),'guru-availability/display-availability/'.($month_counter+1)).'</div>';
+  $next_month_counter='<div style="float:right;width:33%;text-align:right">'.l(t('Next Month >>'),'guru-availability/display-availability/'.($month_counter+1)).'</div>';
 
   $current_month_counter='<div style="float:left;width:33%;text-align:center">'.l(t('Current Month'),'guru-availability/display-availability/0').'</div>';
 
@@ -226,12 +253,18 @@ function enter_availability_form($month_counter=0,$error='') {
 	       <div id="backgroundPopup"></div>
 	       </form>';
 
+$blockPageDivString = '<div id="blockPopup" style="display:none;position:fixed;_position:absolute;height:100%;width:100%;top:0;
+left:0;background:#000000;border:1px solid #cecece;z-index:1;" align="center">
+                      <div style="border:1px solid black; display:block; padding:5px; background-color:#fbffb3; color:#000; width:200px;"><b>Please Wait......</b></div>
+                   </div>';
+
 /*CALENDAR VIEW ENDS*/
 
-  return  $navaigation_string
-         .$table_string
-	 .$navaigation_string
-	 .$popup_string.'<div style="clear:both"></div>';
+  return  $timezoneDivString
+          .$navaigation_string
+          .$table_string
+	  .$navaigation_string
+	  .$popup_string.'<div style="clear:both"></div>'.$blockPageDivString.'<div style="clear:both"></div>';
 }
 
 /**

@@ -84,17 +84,35 @@ function saveData(){
  	 return false;
 	}
   }
+  blockPage(1);
   $.ajax({
          type: "POST",
 		 url: jsURL+"add_availability",
 		 data: $('#time_slot_form').serialize(),
          success: function(responseText){
+            blockPage(0);
             alert(responseText);
             if(responseText=='Time slot information saved'){
 			  disablePopup();	 
 			}
         }
     });
+}
+
+function blockPage(mode){
+if(mode==1){
+  var windowHeight = document.documentElement.clientHeight;
+  var windowWidth = document.documentElement.clientWidth;
+  $("#blockPopup").css({
+		"height": windowHeight,
+        "opacity": "0.7",
+        "z-index": 500
+  });
+  $("#blockPopup").show();
+ }
+ else{
+	$("#blockPopup").hide();
+ }
 }
 
 

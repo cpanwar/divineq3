@@ -51,12 +51,13 @@ function fetchGuruList(mode){
   $('#timezone').val(userTid);
   $('#class_date').val("");
   $('#class_time').val("");
-
+  blockPage(1);
   $.ajax({
          type: "POST",
 		 url: jsURL+"fetch-guru-list",
 		 data: "packageid="+packageid,
          success: function(responseText){
+            blockPage(0);
             if(responseText=='No gurus found for this package'){
 			  alert(responseText);
 			  cleanUpData(1);
@@ -74,11 +75,14 @@ function fetchGuruList(mode){
 }
 
 function selectGuru(uid){
+  blockPage(1);
   $.ajax({
          type: "POST",
+         async: false,
 		 url: jsURL+"fetch-guru-details",
 		 data: "guru="+uid,
          success: function(responseText){
+            blockPage(0);
             if(responseText=='No guru found'){
 			  alert(responseText);
 			  return false;
@@ -89,6 +93,42 @@ function selectGuru(uid){
 			$('#guruDiv').hide();
         }
     });
+}
+
+function getAvailableTimeSlotsForGuru(editMode){
+
+   $("#class_time").html("");
+   var optionString = '<option value="">Select Time</option>';
+   $(optionString).appendTo("#class_time");
+
+   var timezone = $('#timezone').val();
+   var dt = $('#class_date').val();
+   var uid = $('#guruid').val();
+
+   if(dt==''){
+      return false;
+   }
+
+   blockPage(1);
+   $.ajax({
+         type: "POST",
+         async: false,
+		 url: jsURL+"fetch-guru-available-timeslots",
+		 data: "guru="+uid+"&dt="+dt+"&tid="+timezone+"&em="+editMode,
+         success: function(responseText){
+            blockPage(0);
+            if(responseText==''){
+			  return false;
+			}
+			var obj=JSON.parse(responseText);
+			var cnt = obj.length; 
+			optionString = '';
+			for(var i=0; i<cnt ; i++){
+              var opt=new Option(obj[i].name,obj[i].id);
+			  document.getElementById('class_time').options.add(opt);
+			}
+        }
+   });
 }
 
 var classCounter=0;
@@ -137,7 +177,7 @@ function addToSchedule(){
 		alert("You have used all classes for this package.");
 		return false;
 	}
-    
+    blockPage(1);
 	var returnvalue=0;
 	$.ajax({
          type: "POST",
@@ -145,6 +185,7 @@ function addToSchedule(){
          async: false,
 		 data: "key="+key+"&arr="+dataArray+"&pid="+$('#packageid').val(),
          success: function(responseText){
+            blockPage(0);
             if(responseText=='1'){
 				returnvalue= 1;
 			}
@@ -221,6 +262,13 @@ function addToSchedule(){
 
 function confirmClasses(mode){
 	if(mode==2){
+      
+	  if($('#class_time').val()==''){
+		alert("Please select time");
+        $('#class_time').focus();
+		return false;
+	  }
+
       var guruid=$('#guruid').val();
 	  var tid=$('#timezone').val();
 	  var cdate=$('#class_date').val();
@@ -249,6 +297,7 @@ function confirmClasses(mode){
       $('#packageid').focus();
 	  return false;	 
 	}
+	blockPage(1);
 	var returnvalue=0;
 	$.ajax({
          type: "POST",
@@ -256,6 +305,7 @@ function confirmClasses(mode){
          async: false,
 		 data: "arr="+dataArray+"&pid="+$('#packageid').val()+"&ebid="+ebid,
          success: function(responseText){
+            blockPage(0);
             var retvalue=responseText.split('!$@$!*!$@$!');
 			var cnt=retvalue.length;
 			var err=retvalue[0];
@@ -372,4 +422,29 @@ function deleteClassSchedule(val){
 		alert(responseText);
 		return false;
 	}
+}
+
+
+function blockPage(mode){
+if(mode==1){
+  var windowHeight = document.documentElement.clientHeight;
+  var windowWidth = document.documentElement.clientWidth;
+  $("#blockPopup").css({
+		"height": windowHeight,
+        "opacity": "0.7",
+        "z-index": 500
+  });
+  $("#blockPopup").show();
+ }
+ else{
+	$("#blockPopup").hide();
+ }
+}
+
+
+function pupulateFields(uid,date,time){ 
+ selectGuru(uid);
+ $('#class_date').val(date);
+ $('#class_time').val(time);
+ disablePopup();
 }

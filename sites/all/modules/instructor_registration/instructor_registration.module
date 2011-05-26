@@ -4,11 +4,11 @@
 */
 function instructor_registration_menu() {	
 	$items['user/instructor/register'] = array(
-		'title' => 'Create instructor account',
+		'title' => 'Teacher Signup',
 		'page callback' => 'drupal_get_form',
 		'page arguments' => array('user_instructor_register_form'),
 		'access callback' => 'user_register_access',
-		'type' => MENU_LOCAL_TASK,
+		'type' => MENU_LOCAL_ACTION,
 	);
 	$items['admin/user/user/instructor'] = array(
 		'title' => 'Add Instructor',
@@ -27,60 +27,58 @@ function instructor_registration_menu() {
 */ 
 function user_instructor_register_form() {
 	global $user;
-	$form['name'] = array(
+	$nid = getNodeId('registrations-declare');
+	$nodeL = node_load($nid);
+
+	// Account information:
+	$form['account'] = array(
+		'#type' => 'fieldset',
+		'#title' => t('Account information'),
+		'#weight' => -10,
+	);	
+	$form['account']['name'] = array(
 		'#type' => 'textfield',
 		'#title' => t('Username'),
 		'#size' => 60,
 		'#required' => TRUE,
 		'#weight' => -4,
 	);
-	$form['mail'] = array(
+	$form['account']['mail'] = array(
 		'#type' => 'textfield',
 		'#title' => t('E-mail address'),
 		'#size' => 60,
 		'#required' => TRUE,
 		'#weight' => -3,
 	);
-	$form[instructor_info] = profile_form_profile($edit, $user, 'Instructor Information', $register = FALSE);  
+
+	$form[instructor_info] = profile_form_profile($edit, $user, 'Instructor information', $register = FALSE);  
+
 	$settings = variable_get('location_settings_user', array());
 	$form['locations'] = location_form($settings, $account->locations);
-    $form['timezone'] = array(
-      '#type' => 'hidden',
-      '#default_value' => variable_get('date_default_timezone', NULL),
-      '#id' => 'edit-user-register-timezone',
-    );
-	$options = fetch_timezone();
-	$form[user_timezone] = array(
-		'#type' => 'select',
-		'#title' => t('Timezone'),
-		'#default_value' => '',
-		'#options' => $options,
 
+	// Account information:
+	$form['term'] = array(
+		'#type' => 'fieldset',
+		'#title' => t('Term information'),
+		'#weight' => 1,
+	);	
+	$form[term]['term_desc'] = array(
+		'#type' => 'textarea',
+		'#title' => t('Terms & Conditions of Contract'),
+		'#size' => 40,
+		'#default_value' => $nodeL->body,
+		'#attributes' => array('readonly' => 'readonly'),
 	);
-	// setup picture upload in registration form
-	if (variable_get('user_pictures', 0)) {
-		$form['#attributes']['enctype'] = 'multipart/form-data';
-		$form['picture'] = array(
-			'#type' => 'fieldset', 
-			'#title' => t('Picture'), 
-			'#weight' => -1
-		);
-		$form['picture']['picture_upload_register'] = array(
-			'#type' => 'file', 
-			'#title' => t('Upload picture'), 
-			//'#required' => TRUE,	
-			//#default_value' => 0;
-			'#description' => t('<br>Your virtual face or picture. Maximum dimensions are %dimensions and the maximum size is %size kB.', array('%dimensions' => variable_get('user_picture_dimensions', '85x85'), '%size' => variable_get('user_picture_file_size', '30'))) .' '. variable_get('user_picture_guidelines', '')
-		);
-		$form['picture']['pic_selected'] = array(
-			'#type' => 'hidden',
-			'#default_value' => 0
-		);	
-		$form['picture']['picture_upload_register']['#attributes']['onchange'] = "$('#edit-pic-selected').val(1);";
-	}		
+	$form[term]['term_check'] = array(
+		'#type' => 'checkbox',
+		'#title' => t(' I have read and accepted the above Terms & Conditions and the information submitted by me is true and complete to the best of my knowledge.'),
+		'#size' => 10,
+	);
+
 	$form[] = array(
 		'#type' => 'submit',
 		'#value' => t('Save'),
+		'#weight' => 4,
 	);
   return $form;
 }
@@ -91,42 +89,51 @@ function user_instructor_register_form() {
  
 function user_instructor_register_form_validate($form, &$form_state) { 
 	user_module_invoke('validate', $form_state['values'], $form_state['values'], 'account');
+	if(!is_numeric($form_state['values']['profile_inst_phone']) && !empty($form_state['values']['profile_inst_phone'])){
+		form_set_error('profile_inst_phone', 'Phone number should be numeric');
+	}	
+	if(!$form_state['values']['term_check']){
+		form_set_error('term_check', 'Please check terms & conditions');
+	}
+
 }
 
 /**
  * Implementation of hook_submit().
  */
 function user_instructor_register_form_submit($form, &$form_state) {
-	$pass = user_password();
-	$user_timezone = $form_state['values']['user_timezone'];
+
+	$pass = user_password();		
+	$profile_inst_dob = array(
+							'month' => $form_state['values']['profile_inst_dob']['month'],
+							'day' => $form_state['values']['profile_inst_dob']['day'],
+							'year' => $form_state['values']['profile_inst_dob']['year']
+							);				
 	$instructor_user = array(
 	  'name' => $form_state['values']['name'],
 	  'mail' => $form_state['values']['mail'],
 	  'picture' => '',
-	  'timezone' => $form_state['values']['timezone'],
 	  'profile_inst_fname' => $form_state['values']['profile_inst_fname'],
 	  'profile_inst_lname' => $form_state['values']['profile_inst_lname'],
 	  'profile_inst_certification' => $form_state['values']['profile_inst_certification'],
-	  'profile_inst_styles' => $form_state['values']['profile_inst_styles'],
+	  'profile_inst_institute' => $form_state['values']['profile_inst_institute'],
 	  'profile_inst_teaching_exp' => $form_state['values']['profile_inst_teaching_exp'],
 	  'profile_inst_desc' => $form_state['values']['profile_inst_desc'],
+	  'profile_inst_teaching_exp' => $form_state['values']['profile_inst_teaching_exp'],
+	  'profile_inst_yoga_style' => $form_state['values']['profile_inst_yoga_style'],
+	  'profile_find_site' => $form_state['values']['profile_find_site'],
+	  'profile_inst_dob' => $profile_inst_dob,
+	  'profile_inst_phone' => $form_state['values']['profile_inst_phone'],
+	  'profile_inst_salutation' => $form_state['values']['profile_inst_salutation'],
 	  'pass' => $pass,
 	);	
 	$auto_user = user_save('', $instructor_user);
 	$rid = get_role_id($role='expert'); // Assign Role ID (per rtype)
 	$uid = $auto_user->uid;
 	$user = user_load($uid);
-
-	$file = file_save_upload('picture_upload_register');
-	$info = image_get_info($file->filepath);
-	// save picture to correct path and update the row in the user table
-	$destination = variable_get('user_picture_path', 'pictures') .'/picture-'. $user->uid .'.'. $info['extension'];
-	if (file_copy($file, $destination, FILE_EXISTS_REPLACE)) {
-		db_query("UPDATE {users} SET picture='%s' WHERE uid=%d", $file->filepath, $user->uid);
-	}
 		
 	// Update timezone filed in user tables
-	db_query("UPDATE {users} SET tid=%d WHERE uid=%d", $user_timezone, $user->uid);
+	//db_query("UPDATE {users} SET tid=%d WHERE uid=%d", $user_timezone, $user->uid);
 	
 	$locations = array();
 	$locations = $form_state['values']['locations'];	
@@ -135,7 +142,11 @@ function user_instructor_register_form_submit($form, &$form_state) {
 	
 	// For mail template at Instructor registration
 	$to =  $form_state['values']['mail'];
-	$body = "Thank you for registering. Your application for an account is currently pending approval. Once it has been approved, you will receive another e-mail containing information about how to log in, set your password, and other details.";
+	$body = "";
+	$body .= "Hello ".$user->name."<br/><br/>";
+	$body .= "Thank you for registering. Your application for an account is currently pending approval. Once it has been approved, you will receive another e-mail containing information about how to log in, set your password, and other details.<br/><br/>";
+	$body .= "Thanks<br/>";
+	$body .= "Divinewellness Team";
 	$params = array(
 					'body' => $body,
 					'subject' => 'Account details for '.$user->name.' at '.!site.' (pending admin approval)',
@@ -173,6 +184,7 @@ function instructor_registration_user($op, &$edit, &$account, $category = NULL){
  * Implementation of hook_form_alter
 */
 function instructor_registration_form_alter(&$form, &$form_state, $form_id){
+
 	global $user;
 	$account  = user_load(arg(1));
 	
@@ -202,6 +214,10 @@ function instructor_registration_form_alter(&$form, &$form_state, $form_id){
 			'#weight' => 10,
 		);
 	}
+	if($form_id=='user_instructor_register_form'){
+		$form['instructor_info']['Instructor information']['profile_inst_salutation']['#type']='radios';
+		unset($form['instructor_info']['Instructor information']['profile_inst_desc']);
+	}
 }
 
 /*
@@ -211,6 +227,7 @@ function instructor_registration_mail($key, &$message, $params) {
   switch($key) {
     case 'register_approval_required':         
       // define subject and body
+	  $message['headers']['Content-Type'] = 'text/html; charset=UTF-8; format=flowed';
       $message['subject'] = $params['subject'];
       $message['body'] = $params['body'];;       
       break;
@@ -260,5 +277,14 @@ function expertPackage($uid){
 	}
 	return $rs;
 
+}
+
+/*
+ * Implementation get nid from url alias
+ */
+function getNodeId($url_alias){
+	$src = db_result(db_query("SELECT src from url_alias WHERE dst='%s'", $url_alias));
+	$nidArr = explode('/',$src);
+	return $nidArr['1'];
 }
 ?>

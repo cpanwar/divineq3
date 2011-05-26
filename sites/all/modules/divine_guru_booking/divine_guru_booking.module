@@ -80,6 +80,16 @@ function divine_guru_booking_menu() {
 	'access arguments' => array('manage booking'),
 	);
 
+	$items['guru-booking/fetch-guru-available-timeslots'] = array(
+	'page callback' => 'fetch_guru_available_timeslots',
+	'access arguments' => array('manage booking'),
+	);
+
+	$items['guru-booking/fetch-guru-profile'] = array(
+	'page callback' => 'fetch_guru_profile',
+	'access arguments' => array('manage booking'),
+	);
+  
   return $items;
 }
 
@@ -127,6 +137,11 @@ function check_package_class_limit($packageid,$validationDate){
  $packageArray = node_load($packageid);
  $packageValidity = intval($packageArray->field_validity[0]['value']);
  $packageClasses = intval($packageArray->field_live_sessions[0]['value']);
+ $packageStatus = $packageArray->status;
+
+ if($packageStatus==0 or $packageStatus==''){
+   return -1;
+ }
 
  if($packageValidity==0 or $packageClasses==0){
    return 0;
@@ -220,7 +235,7 @@ $query="select distinct n.nid,n.title
  * This function is used for fetching time zones
  */
 function get_time_zones($mode=1,$tid=''){
-  $query="select tid,name from {divine_timezone}" ; 
+  $query="select tid,name,offsettime,if(offsetsign=1,'+','-') as offsetsign from {divine_timezone}" ; 
   $db_result=db_query($query);
   if($mode==1){
    return $db_result;
@@ -229,6 +244,7 @@ function get_time_zones($mode=1,$tid=''){
    //$timezone_string = '<option value="0">Select a timezone</option>';
    while ($row = db_fetch_object($db_result)) {
      $selected="";
+     $row->name = $row->name.' (UTC '.$row->offsetsign.' '.$row->offsettime.')';
      if($tid==$row->tid){
        $selected="selected";
      }
@@ -274,6 +290,7 @@ function fetch_search_criteria() {
    }
  }
   
+  $editMode = 0;
   if($bid!=''){
    //fetch information regarding this booking
    $query="select d.aid,d.packageid,d.tid,d.class_date,d.class_time,a.uid as gid
@@ -291,6 +308,7 @@ function fetch_search_criteria() {
      $eclass_dateArray=explode('-',$eclass_date);
      $eclass_date=$eclass_dateArray[1].'/'.$eclass_dateArray[2].'/'.$eclass_dateArray[0];
    }
+   $editMode = 1;
   }
 
   $module_path=drupal_get_path('module', 'divine_guru_booking');
@@ -301,6 +319,8 @@ function fetch_search_criteria() {
   drupal_add_css($module_path.'/css/jquery-ui-1.css','module');
 
   jquery_ui_add(array('ui.datepicker'));
+
+  /*Needed for timepicker functionality*/
   drupal_add_js($module_path.'/js/jquery-1.js','module');
   drupal_add_js($module_path.'/js/jquery-ui-1.js','module');
   drupal_add_js($module_path.'/js/jquery-ui-timepicker-addon.js','module');
@@ -310,7 +330,9 @@ function fetch_search_criteria() {
 			buttonImage: "'.$base_url.'/'.$module_path.'/images/calendar.gif",
 			buttonImageOnly: true
 		});
-		$("#class_time").timepicker({});
+		
+		//$("#class_time").timepicker({});
+
 		ebid="'.$bid.'";
 		var egid="'.$egid.'";
 		var etid="'.$etid.'";
@@ -324,7 +346,19 @@ function fetch_search_criteria() {
 		 selectGuru(egid);
                  $("#timezone").val(etid);
 		 $("#class_date").val(eclass_date);
+                 //Fetch time slots (available) 
+		 getAvailableTimeSlotsForGuru(1);
 		 $("#class_time").val(eclass_time);
+		 /*
+                 if($("#class_time option").length>1){
+		   $("#class_time").val(eclass_time);
+		 }
+		 else{
+		   var opt = new Option (eclass_time,eclass_time);
+		   document.getElementById("class_time").options.add(opt);
+		   $("#class_time").val(eclass_time);
+		 }
+		 */
 		}
   });','inline');
 
@@ -430,14 +464,16 @@ function fetch_search_criteria() {
 		<td align="left">&nbsp;</td>
                </tr>
 	       <tr>
-	        <td width="40%">
-		 <select name="timezone" id="timezone" style="width:280px;">
+	        <td width="30%">
+		 <select name="timezone" id="timezone" style="width:200px;" onchange="getAvailableTimeSlotsForGuru('.$editMode.');">
 		 '.$timezone_string.'
 		 </select>
 		</td>
-		<td width="19%"><input type="text" name="class_date" id="class_date" style="width:80px;" readonly="true" /></td>
+		<td width="19%"><input type="text" name="class_date" id="class_date" style="width:80px;" readonly="true" onchange="getAvailableTimeSlotsForGuru('.$editMode.');" /></td>
 		<td width="14%">
-		 <input type="text" name="class_time" id="class_time" style="width:80px;" readonly="true" value="" />
+		 <select name="class_time" id="class_time" style="width:150px;">
+		  <option value="">Select Time</option>
+		 </select>
 		</td>
 		<td>
 		  <input type="button" name="add_to_my_schedule" value="'.$buttonValue.'" onclick="'.$buttonClick.'" />
@@ -476,8 +512,13 @@ function fetch_search_criteria() {
 		 </div>
 	        </div>
 	       <div id="backgroundPopup"></div>';
+   
+   $blockPageDivString = '<div id="blockPopup" style="display:none;position:fixed;_position:absolute;height:100%;width:100%;top:0;
+                           left:0;background:#000000;border:1px solid #cecece;z-index:1;" align="center">
+                      <div style="border:1px solid black; display:block; padding:5px; background-color:#fbffb3; color:#000; width:200px;"><b>Please Wait......</b></div>
+                   </div>';
 
-   return $output.$popupString;
+   return $output.$popupString.$blockPageDivString;
 }
 
 
@@ -496,6 +537,10 @@ function fetch_guru_list(){
 
   $currentDate=date('Y-m-d');
   $returnValue = check_package_class_limit($packageid,$currentDate);
+
+  if($returnValue == '-1'){
+    die("This package is disabled.");
+  }
   if($returnValue == '0'){
     die("Validity or live session is not defined for this package.\nPlease contact administrator.");
   }
@@ -557,14 +602,17 @@ function fetch_guru_list(){
                          <td>'.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.'</td>
                      </tr>
 		     <tr>
-			 <td>'.substr($userArray->profile_inst_desc,0,200).'</td>
+			 <td>'.
+			       substr($userArray->profile_inst_desc,0,200).
+			 '<br/><a href="javascript:void(0);" onclick="openGuruDetails('.$row->uid.')">'.t('Teacher Profile').'</a>
+			 </td>
                      </tr>
 		     <tr>
 			 <td><a href="javascript:void(0);" onclick="openGuruTimeSlots('.$row->uid.',0,'.$user->tid.');" title="View Time Slots">View Time Slots<a/></td>
                      </tr>
 		     <tr>
 			 <td valign="bottom">
-			   <input type="button" value="Schedule a class" onclick="selectGuru('.$row->uid.')" />
+			   <input type="button" value="Select a teacher" onclick="selectGuru('.$row->uid.')" />
 			 </td>
                      </tr>'; 
     $table_string .='</table>';
@@ -681,6 +729,10 @@ function check_guru_availability(){
 
   $currentDate=date('Y-m-d');
   $returnValue = check_package_class_limit($packageid,$currentDate);
+  
+  if($returnValue == '-1'){
+    die("This package is disabled.");
+  }
 
   if($returnValue == '0'){
     die("Validity or live session is not defined for this package.\nPlease contact administrator.");
@@ -702,6 +754,10 @@ function check_guru_availability(){
   $cdate=trim($key_array[3]);
   $cdateArray=explode('/',$cdate);
   $cdate=$cdateArray[2].'-'.$cdateArray[0].'-'.$cdateArray[1];
+
+  if(strtotime($cdate)<strtotime($currentDate)){
+   die("You can not schedule a class whose date is smaller than current date.");
+  }
 
   //set timezone to UTC
   date_default_timezone_set("UTC");
@@ -743,7 +799,8 @@ function check_guru_availability(){
   date_default_timezone_set("UTC");
   //echo $adjustedTime;
   $classStartTime = strtotime($cdate.' '.$classTime) + $adjustedTime;
-  $classEndTime   = $classStartTime + 3600;
+  //$classEndTime   = $classStartTime + 3600;
+  $classEndTime   = $classStartTime + 3540;
 
   /*CHECK WHETHER SELECTED GURU IS AVAILABLE OR NOT (FOR +/- 1 DAYS)*/
    $query="select d.aid,t.tid,t.offsettime,t.offsetsign,
@@ -871,7 +928,8 @@ function check_guru_availability(){
       date_default_timezone_set("UTC");
 
       $tStartTimeStamp = strtotime($pDate.' '.$pTime) + $tAdjustedTime;
-      $tEndTimeStamp   = $tStartTimeStamp + 3600 ;
+      //$tEndTimeStamp   = $tStartTimeStamp + 3600 ;
+      $tEndTimeStamp   = $tStartTimeStamp + 3540 ;
 
       $query="select 
 	    ( 
@@ -1046,6 +1104,11 @@ else{  // check package validtity and class limit during addition of new records
 
   $currentDate=date('Y-m-d');
   $returnValue = check_package_class_limit($packageId,$currentDate);
+  
+  if($returnValue == '-1'){
+    echo "err:1!$@$!*!$@$!err_type:7!$@$!*!$@$!This package is disabled."; 
+    return;
+  }
 
   if($returnValue == '0'){
     echo "err:1!$@$!*!$@$!err_type:7!$@$!*!$@$!Validity or live session is not defined for this package.\nPlease contact administrator."; 
@@ -1180,7 +1243,8 @@ if($isTrialClassCount==0){
    date_default_timezone_set("UTC");
 
    $classStartTime = strtotime($classDate.' '.$classTime) + $adjustedTime;
-   $classEndTime   = $classStartTime + 3600 ;
+   //$classEndTime   = $classStartTime + 3600 ;
+   $classEndTime   = $classStartTime + 3540 ;
 
    /*CHECK WHETHER SELECTED GURU IS AVAILABLE OR NOT (FOR +/- 1 DAYS)*/
    $query="select d.aid,t.tid,t.offsettime,t.offsetsign,
@@ -1285,7 +1349,8 @@ if($isTrialClassCount==0){
      date_default_timezone_set("UTC");
 
      $pclassStartTime = strtotime($pclassDate.' '.$pclassTime) + $padjustedTime;
-     $pclassEndTime   = $pclassStartTime + 3600 ;
+     //$pclassEndTime   = $pclassStartTime + 3600 ;
+     $pclassEndTime   = $pclassStartTime + 3540 ; //to make it 59 min. duration
 
      $query="select 
 	    ( 
@@ -1551,9 +1616,15 @@ function show_scheduled_classes($mode=1){
       $i++;
      }
      if($currentTime <= strtotime($links->class_date)){
+     if($links->isTrial==0){  // trial classes can not be edited/deleted
       $editLink = '<a href="javascript:void(0);" onclick="editClassSchedule('.$links->bid.')" title="Edit this schedule">Edit</a>';
-
       $deleteLink = '<a href="javascript:void(0);" onclick="deleteClassSchedule('.$links->bid.')" title="Delete this schedule">Delete</a>';
+      }
+      else{
+        $data .= '(Trial Class)';
+        $editLink   = '---' ;
+        $deleteLink = '---' ;
+      }
      }
      else{
        $editLink   = '---' ;
@@ -1582,6 +1653,10 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
   //set timezone to UTC
    date_default_timezone_set("UTC");
 
+  $module_path=drupal_get_path('module', 'divine_guru_booking');
+  drupal_add_js($module_path.'/js/booking.js','module');
+  drupal_add_js('var jsURL="'.$base_url.'/guru-booking/"','inline');
+
   $prev_week_counter='';
   $next_week_counter='';
   $current_week_counter='';
@@ -1602,8 +1677,7 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
 
   $timezoneId = trim($timezoneId);
   if($timezoneId==''){
-   echo 'Invalid Input Data';
-   return;
+   return 'Invalid Input Data';
   }
 
   //set timezone to UTC
@@ -1644,35 +1718,6 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
   }
   $tableString .='</tr>';
 
-  /*FETCH RECORDS FROM SLOTS TABLE*/
-  $query="select sid,name,start_time,end_time from {divine_time_slot}";
-     
-  $db_result = db_query($query);
-  $flag=false;
-  $dateArray=array(); 
-  while ($row = db_fetch_object($db_result)) {
-      $tableString .='<tr>';
-      $flag=true;
-      $slotid=$row->sid;
-      $slotname=$row->name;
-      $start_time=$row->start_time;
-      $end_time=$row->end_time;
-      $temp_timestamp=$monday_date_timestamp;
-      
-      while($temp_timestamp<=$sunday_date_timestamp){
-          $dt=date("Y-m-d",$temp_timestamp);
-          $startTimeStamp=strtotime(date($dt.' '.$start_time));
-	  $endTimeStamp=strtotime(date($dt.' '.$end_time));
-          $dateArray[]=array($slotname,$startTimeStamp,$endTimeStamp,-1);
-          $temp_timestamp=strtotime("+1 day",$temp_timestamp);  
-      }
-  }
-
-  if(!$flag){
-    $tableString .= '<tr><td colspan="7">No Records Found</td></tr>';
-    $tableString .= '</table>';
-    return $tableString;
-  }
 
   /*FETCH TIMEZONE AND ITS ADJUSTMENTS*/ 
   $query="select name,timezone,offsettime,offsetsign from {divine_timezone} where tid=%d";
@@ -1707,6 +1752,44 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
     }
   }
 
+  //set timezone to UTC
+  date_default_timezone_set("UTC");
+
+  /*FETCH RECORDS FROM SLOTS TABLE*/
+  $query="select sid,name,start_time,end_time from {divine_time_slot}";
+     
+  $db_result = db_query($query);
+  $flag=false;
+  $dateArray=array(); 
+  while ($row = db_fetch_object($db_result)) {
+      $tableString .='<tr>';
+      $flag=true;
+      $slotid=$row->sid;
+      $slotname=$row->name;
+      $start_time=$row->start_time;
+      $end_time=$row->end_time;
+      $temp_timestamp=$monday_date_timestamp;
+      
+      while($temp_timestamp<=$sunday_date_timestamp){
+          $dt=date("Y-m-d",$temp_timestamp);
+          
+	  //adjust according to user's selected time zone
+	  $startTimeStamp=strtotime(date($dt.' '.$start_time))+$adjusted_time;
+	  $endTimeStamp=strtotime(date($dt.' '.$end_time))+$adjusted_time;
+
+	  $slotname=date("g:ia",$startTimeStamp).'---'.date("g:ia",$endTimeStamp);
+
+          $dateArray[]=array($slotname,$startTimeStamp,$endTimeStamp,-1);
+          $temp_timestamp=strtotime("+1 day",$temp_timestamp);  
+      }
+  }
+
+  if(!$flag){
+    $tableString .= '<tr><td colspan="7">No Records Found</td></tr>';
+    $tableString .= '</table>';
+    return $tableString;
+  }
+
   //echo $adjusted_time.'--'.$isDst.'---'.$timezone_name;
   //die;
 
@@ -1721,7 +1804,9 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
 
   /*FETCH RECORDS FROM AVAILIBILITY TABLE AND ADJUST TIME ACCORDING TO TIMEZONE*/
    $query="select ga.aid,ga.uid,ga.sid,ga.dated,ga.isAvailable,ga.start_timestamp,ga.end_timestamp,
-           IFNULL(gb.uid,-1) as booked_by
+           IFNULL(gb.uid,-1) as booked_by,
+	   IF(gb.isTrial=1,1,0) as isTrialClass,
+	   IFNULL(gb.bid,-1) as bid
            from {users} u , {divine_time_slot} dt,
 	   {divine_guru_availability} ga
 	   LEFT JOIN {divine_guru_booking} gb ON ga.aid=gb.aid
@@ -1740,12 +1825,16 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
 				$row->start_timestamp+$adjusted_time,
 				$row->end_timestamp+$adjusted_time,
 				$row->isAvailable,
-				$row->booked_by
+				$row->booked_by,
+				$row->isTrialClass,
+				$row->bid
 			      );
     $availabilityArray[$row->uid.'-'.$row->sid.'-'.$row->dated] = $row->isAvailable;
     $bookeByArray[$row->uid.'-'.$row->sid.'-'.$row->dated] = $row->booked_by;
   }
   
+
+  /*BUILD THE TABLE STRUCTURE*/
   $rowCnt=0;
   foreach($dateArray as $key=>&$dtArray){
      if($rowCnt % 7 == 0 and $rowCnt!=0){
@@ -1756,19 +1845,26 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
      $startTime=$dtArray[1];
      $endTime=$dtArray[2];
      $marked=-1;
-
+     $name=$dtArray[0];
      if($dtArray[3]!=-1){ // if it is available or unavilable then do not process
        continue;
      }
+     $onclick='';
      foreach($existing_records as $key1=>$guruArray){
-        if($guruArray[1] >= $startTime  and $guruArray[1] <=$endTime-1 ){
-	 if($guruArray[3]==1){ 
-	 //echo $rowCnt.'--'.$guruArray[0].'---'.date('Y-m-d g:i A',$guruArray[1]).'--'.date('Y-m-d g:i A',$startTime).'**'.date('Y-m-d g:i A',$guruArray[2]).'--'.date('Y-m-d g:i A',$endTime).'=='.$guruArray[3];
-	 //echo '<br>';
-	 }
+	if( ($guruArray[1] >= $startTime  and $guruArray[1] <=$endTime-1)  ){
+
+	  //if(($guruArray[1] >= $startTime  and $guruArray[1] <=$endTime-1)){
+	    //$name = date('g:ia',$guruArray[1]).'---'.date('g:ia',$guruArray[2]);
+	    //$name = 'aid='.$guruArray[0];
+	    //$dateArray[$key+7][0]='***';
+	  //}
+	   
 	  if($guruArray[3]==0){ //if unavailable
 	    if($guruArray[4]==$bookedByUserId){
 	      $marked = 3;  //if booked by this user
+	      if($guruArray[5]!=1){ // if it is not trial class,then give option of editing
+	        //$onclick = 'onclick=editClassSchedule("'.$guruArray[6].'");';    
+	      }
 	    }
 	    else{
 	      $marked = 2;  // if booked by different user
@@ -1776,13 +1872,16 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
 	  }
 	  else{ //if available
 	     $marked = 1 ;
+	     //$onclick = 'onclick=pupulateFields("'.$gid.'","'.date("m/d/Y",$startTime).'","'.date("H:i",$startTime).'");';
 	  }
 	}
      }
      $dtArray[3]=$marked;
+     $dtArray[0]=$name;
      if($dtArray[3]==1){
        $style = 'style="background-color:#80ff80"';
-       $title = 'title="This time slot is available"';
+       //$title = 'title="This time slot is available.Click here to book."';
+       $title = 'title="This time slot is available."';
      }
      else if($dtArray[3]==2){
        $style='style="background-color:#ff3535"';
@@ -1790,19 +1889,25 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
      }
      else if($dtArray[3]==3){
        $style='style="background-color:#80e1ec"';
-       $title = 'title="This time slot is booked by you"';
+       //$title = 'title="This time slot is booked by you.Click here to edit."';
+       $title = 'title="This time slot is booked by you."';
      }
      else{
        $style='style="background-color:#e5e5e5"';
        $title = 'title="This time slot is unavailable"';
      }
-     $tableString .='<td '.$style.' '.$title.'>'.$dtArray[0].'</td>';
+     $tableString .='<td align="center" '.$style.' '.$title.' '.$onclick.' nowrap>'.$dtArray[0].'</td>';
+     $onclick='';
   }
   $tableString .='</tr></table>';
 
   return $searchString.$navaigation_string.$tableString.$navaigation_string;
  }
 
+/**
+ * This function is used for displaying guru's time slot in user login according to user
+ * selected time zone.
+ */
 function fetch_guru_timeslots(){
    global $user;
    $uid=$user->uid;
@@ -1817,5 +1922,269 @@ function fetch_guru_timeslots(){
 
    echo show_guru_availability_week_format_user_login($gid,$week,$uid,$timezoneId);
    return;
+}
+
+
+/**
+ * This function is used for displaying guru's time slot in user login according to user
+ * selected time zone in time dropdown
+ */
+function fetch_guru_available_timeslots(){
+  
+   global $user;
+   $uid = $user->uid;
+
+   //set timezone to UTC
+   date_default_timezone_set("UTC");
+
+   $gid   = trim($_POST['guru']);
+   $timezoneId = trim($_POST['tid']);
+   $editMode = trim ($_POST['em']);
+   $dated = trim($_POST['dt']);
+
+   $dateArray = explode('/',$dated);
+   $dated = $dateArray[2].'-'.$dateArray[0].'-'.$dateArray[1];
+
+   $timezoneId = trim($timezoneId);
+   if($timezoneId==''){
+    echo 'Invalid Input Data';
+    return;
+   }
+
+  //set timezone to UTC
+  date_default_timezone_set("UTC");
+   
+  
+  $monday_date_timestamp=strtotime($dated);
+  $sunday_date_timestamp=strtotime($dated);
+
+  $monday_date = $dated;
+  $sunday_date = $dated;
+
+
+  /*FETCH TIMEZONE AND ITS ADJUSTMENTS*/ 
+  $query="select name,timezone,offsettime,offsetsign from {divine_timezone} where tid=%d";
+  $db_result = db_query($query,$timezoneId);
+   
+  $adjusted_time=0;$offset_time=0;$offset_sign=0;$timezone=0;
+  $timezone_name='';$isDst=0;$name='';
+  while ($row = db_fetch_object($db_result)) {
+      $offset_time = $row->offsettime;
+      $offset_sign = $row->offsetsign;
+      $timezone    = $row->tid;
+      $timezone_name= $row->timezone;
+      $name = $row->name;
+      if($timezone_name!=''){
+       @date_default_timezone_set($timezone_name); //to suppress warnings for not supported timezones
+       $isDst = date("I");
+      }
+  }
+  if($offset_time!=0){
+    $arr=explode(':',$offset_time);
+    $adjusted_time=$arr[0]*60*60+$arr[1]*60;
+    if($offset_sign=='1'){
+     if($isDst==1){
+       $adjusted_time = $adjusted_time + 3600 ; //for DST
+     }
+    }
+    else{
+      if($isDst==1){
+         $adjusted_time = $adjusted_time - 3600 ; //for DST
+      }
+      $adjusted_time = 0 - $adjusted_time;
+    }
+  }
+
+  //set timezone to UTC
+  date_default_timezone_set("UTC");
+
+  /*FETCH RECORDS FROM SLOTS TABLE*/
+  $query="select sid,name,start_time,end_time from {divine_time_slot}";
+     
+  $db_result = db_query($query);
+  $flag=false;
+  $dateArray=array(); 
+  while ($row = db_fetch_object($db_result)) {
+      $tableString .='<tr>';
+      $flag=true;
+      $slotid=$row->sid;
+      $slotname=$row->name;
+      $start_time=$row->start_time;
+      $end_time=$row->end_time;
+      $temp_timestamp=$monday_date_timestamp;
+      
+      while($temp_timestamp<=$sunday_date_timestamp){
+          $dt=date("Y-m-d",$temp_timestamp);
+          
+	  //adjust according to user's selected time zone
+	  $startTimeStamp=strtotime(date($dt.' '.$start_time))+$adjusted_time;
+	  $endTimeStamp=strtotime(date($dt.' '.$end_time))+$adjusted_time;
+
+	  $slotname=date("g:ia",$startTimeStamp).'---'.date("g:ia",$endTimeStamp);
+
+          $dateArray[]=array($slotname,$startTimeStamp,$endTimeStamp,-1);
+          $temp_timestamp=strtotime("+1 day",$temp_timestamp);  
+      }
+  }
+
+  if(!$flag){
+    return "No Records Found";
+  }
+
+  //echo $adjusted_time.'--'.$isDst.'---'.$timezone_name;
+  //die;
+
+  //set timezone to UTC
+  date_default_timezone_set("UTC");
+
+  /*FETCH RECORDS FROM AVAILIBILITY TABLE AND ADJUST TIME ACCORDING TO TIMEZONE*/
+   $query="select ga.aid,ga.uid,ga.sid,ga.dated,ga.isAvailable,ga.start_timestamp,ga.end_timestamp,
+           IFNULL(gb.uid,-1) as booked_by,
+	   IF(gb.isTrial=1,1,0) as isTrialClass,
+	   IFNULL(gb.bid,-1) as bid
+           from {users} u , {divine_time_slot} dt,
+	   {divine_guru_availability} ga
+	   LEFT JOIN {divine_guru_booking} gb ON ga.aid=gb.aid
+	   where ga.uid=u.uid and ga.sid=dt.sid 
+	   and u.uid=%d and (ga.dated >='%s' and ga.dated <='%s')
+           ";
+   $db_result = db_query($query,$gid,$monday_date,$sunday_date);
+  
+
+  $existing_records=array();
+  while ($row = db_fetch_object($db_result)) {
+    $existing_records[] =array(
+                                $row->aid,
+				$row->start_timestamp+$adjusted_time,
+				$row->end_timestamp+$adjusted_time,
+				$row->isAvailable,
+				$row->booked_by,
+				$row->isTrialClass,
+				$row->bid
+			      );
+  }
+  
+  /*BUILD THE TABLE STRUCTURE*/
+  $rowCnt=0;
+  $availableArray = array();
+  foreach($dateArray as $key=>&$dtArray){
+     $rowCnt ++ ;
+
+     $startTime=$dtArray[1];
+     $endTime=$dtArray[2];
+     $marked=-1;
+     $name=$dtArray[0];
+     if($dtArray[3]!=-1){ // if it is available or unavilable then do not process
+       continue;
+     }
+     $onclick='';
+     foreach($existing_records as $key1=>$guruArray){
+	if( ($guruArray[1] >= $startTime  and $guruArray[1] <=$endTime-1)  ){
+	  if($guruArray[3]==1){ //if available
+	     $marked = 1 ;
+	     $availableArray[] = array('id'=>date('H:i',$guruArray[1]),'name'=>date('g:ia',$guruArray[1]).'---'.date('g:ia',$guruArray[2]));
+	  }
+	  else if($guruArray[3]==0 and $guruArray[5]==0 and $guruArray[4]==$uid){ // if booked by this user himself and not a trial class
+	    if($editMode==1){
+               $marked = 3 ;
+	       $availableArray[] = array('id'=>date('H:i',$guruArray[1]),'name'=>date('g:ia',$guruArray[1]).'---'.date('g:ia',$guruArray[2]));	     
+	    }
+	  }
+	}
+     }
+     $dtArray[3]=$marked;
+  }
+  die(json_encode($availableArray));
+}
+
+
+/**
+ * This function is used for displaying guru's profile
+ */
+function fetch_guru_profile(){
+  global $base_url;
+
+  $gid = trim($_POST['gid']);
+  if($gid==''){
+    die('Invalid input specified');
+  }
+
+  $userArray = user_load($gid);
+
+  $width='100px';
+  
+  $profile_image_path=$userArray->picture;
+  if(file_exists($profile_image_path)){
+    $profile_image = '<img src="'.$base_url.'/'.$userArray->picture.'" />';
+    $dimension=variable_get('user_picture_dimensions','');
+    $dimension_array=explode('x',$dimension);
+    $width=$dimension_array[0].'px';
+  }
+  else{
+     $profile_image = '<img src="'.$base_url.'/sites/default/noimage.png" />';
+  }
+  if(intval($userArray->profile_inst_dob['month'])<10){
+    $userArray->profile_inst_dob['month']= '0'.$userArray->profile_inst_dob['month'];
+  }
+  if(intval($userArray->profile_inst_dob['day'])<10){
+    $userArray->profile_inst_dob['day']= '0'.$userArray->profile_inst_dob['day'];
+  }
+  $dob = $userArray->profile_inst_dob['year'].'-'.$userArray->profile_inst_dob['month'].'-'.$userArray->profile_inst_dob['day'];
+  $dob = strtotime($dob);
+  if(!$dob){
+    $dob = '---';
+  }
+  else {
+   $dob = date("d M, Y",$dob);
+   }
+   $userArray->profile_inst_desc = trim($userArray->profile_inst_desc)!=''?trim($userArray->profile_inst_desc):'---';
+   $userArray->profile_inst_certification = trim($userArray->profile_inst_certification)!=''?trim($userArray->profile_inst_certification):'---';
+   $userArray->profile_inst_yoga_style = trim($userArray->profile_inst_yoga_style)!=''?trim($userArray->profile_inst_yoga_style):'---';
+   $userArray->profile_inst_teaching_exp = trim($userArray->profile_inst_teaching_exp)!=''?trim($userArray->profile_inst_teaching_exp).' years':'---';
+
+  $profileString = 
+  '<table border="0" cellpadding="0" cellspacing="0">
+  <tr>
+   <td align="left"><h1>Profile of '.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.'</h1></td>
+  </tr>
+   <tr>
+    <td>
+     <table border="1" cellpadding="0" cellspacing="0">
+       <tr>
+         <td rowspan="2" width="15%">'.$profile_image.'</td>
+         <td width="11%">Name:</td>
+         <td>'.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.'</td>
+       </tr>
+       <tr>
+        <td>DOB:</td>
+        <td>'.$dob.'</td>
+       </tr>
+       <tr>
+        <td>About Me:</td>
+        <td colspan="2">'.$userArray->profile_inst_desc.'</td>
+       </tr>
+      </table>
+	</td>
+   </tr>
+   <tr>
+   <td>
+    <table border="1" cellpadding="0" cellspacing="0">
+	 <tr>
+	  <td>Certifications:</td>
+	  <td colspan="3">'.$userArray->profile_inst_certification.'</td>
+	 </tr>
+	 <tr>
+	  <td>Yoga Style:</td>
+	  <td>'.$userArray->profile_inst_yoga_style.'</td>
+	  <td>Teaching Experience:</td>
+	  <td>'.$userArray->profile_inst_teaching_exp.'</td>
+	 </tr>
+	</table>
+	</td>
+   </tr>
+  </table>';
+
+  echo $profileString;
+  return;
 }
 ?>

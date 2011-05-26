@@ -23,6 +23,19 @@ function loadPopup(val,week,timezone){
 	}
 }
 
+//loading popup with jQuery magic!
+function loadPopupSimple(){
+	//loads popup only if it is disabled
+	if(popupStatus==0){
+		$("#backgroundPopup").css({
+			"opacity": "0.7"
+		});
+		$("#backgroundPopup").fadeIn("slow");
+		$("#popupContact").fadeIn("slow");
+		popupStatus = 1;
+	}
+}
+
 //disabling popup with jQuery magic!
 function disablePopup(){
 	//disables popup only if it is enabled
@@ -101,6 +114,14 @@ $(document).ready(function(){
 });
 
 function openGuruTimeSlots(val,week,timezone){
+  $("#popupContact").css({
+	  "height": "480",
+      "width": "850", 
+  });
+  $("#contactArea").css({
+	  "height": "470",
+      "width": "840", 
+  });
   centerPopup();
   loadPopup(val,week,timezone);
 }
@@ -108,4 +129,30 @@ function openGuruTimeSlots(val,week,timezone){
 function openGuruTimeSlotsWithTimezone(val,week){
   var timezone = $('#timezone').val();
   openGuruTimeSlots(val,week,timezone);	 
+}
+
+function loadGuruProfile(val){
+	$("#contactArea").html("<b>Loading Data.Please wait.................</b>");
+	$.ajax({
+         type: "POST",
+		 url: jsURL+"fetch-guru-profile",
+		 data: "gid="+val,
+         success: function(responseText){
+            $("#contactArea").html(responseText);
+        }
+    });
+}
+
+function openGuruDetails(val){
+  $("#popupContact").css({
+	  "height": "350",
+      "width": "600", 
+  });
+  $("#contactArea").css({
+	  "height": "350",
+      "width": "600", 
+  });
+  centerPopup();
+  loadGuruProfile(val);
+  loadPopupSimple();
 }
