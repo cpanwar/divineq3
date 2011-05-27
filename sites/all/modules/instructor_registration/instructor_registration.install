@@ -23,6 +23,7 @@ function instructor_registration_schema() {
 
 function instructor_registration_install() {
 	drupal_install_schema('instructor_registration');
+	db_query("ALTER TABLE {users} ADD tid int(11)");
 db_query("
 			INSERT INTO `divine_timezone` (`tid`, `short_name`, timezone, `offsettime`, `offsetsign`, `name`)	
 			VALUES
@@ -130,7 +131,7 @@ db_query("
 				('102', 'CA', 'America/Edmonton', '07:00', '0', 'America/Edmonton'),
 				('103', 'CA', 'America/Cambridge_Bay', '07:00', '0', 'America/Cambridge_Bay'),
 				('', 'CA', 'America/Yellowknife', '07:00', '0', 'America/Yellowknife'),
-				('', 'CA', '	America/Inuvik', '07:00', '0', '	America/Inuvik'),
+				('', 'CA', 'America/Inuvik', '07:00', '0', 'America/Inuvik'),
 				('', 'CA', 'America/Dawson_Creek', '07:00', '0', 'America/Dawson_Creek'),
 				('', 'CA', 'America/Vancouver', '08:00', '0', 'America/Vancouver'),
 				('', 'CA', 'America/Whitehorse', '08:00', '0', 'America/Whitehorse'),
@@ -219,7 +220,7 @@ db_query("
 				('', 'IN', 'Asia/Kolkata', '05:30', '1', 'Asia/Kolkata'),
 				('', 'IO', 'Indian/Chagos', '06:00', '1', 'Indian/Chagos'),
 				('', 'IQ', 'Asia/Baghdad', '03:00', '1', 'Asia/Baghdad'),
-				('', 'IR', 'Asia/Tehran', '03:30', '1', '	Asia/Tehran'),
+				('', 'IR', 'Asia/Tehran', '03:30', '1', 'Asia/Tehran'),
 				('', 'IS', 'Atlantic/Reykjavik', '00:00', '1', 'Atlantic/Reykjavik'),
 				('', 'IT', 'Europe/Rome', '01:00', '1', 'Europe/Rome'),
 				('', 'JE', 'Europe/Jersey', '00:00', '1', 'Europe/Jersey'),
@@ -433,11 +434,7 @@ db_query("
 		);	
 }
 
-function instructor_registration_1() {
-  $items = array();
-  $items[] = update_sql("ALTER TABLE {users} ADD tid int(11) after data");
-  return $items;
-}
+
 function instructor_registration_uninstall() {
   drupal_uninstall_schema('instructor_registration');
 }

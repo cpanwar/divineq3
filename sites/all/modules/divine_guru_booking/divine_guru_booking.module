@@ -235,7 +235,7 @@ $query="select distinct n.nid,n.title
  * This function is used for fetching time zones
  */
 function get_time_zones($mode=1,$tid=''){
-  $query="select tid,name,offsettime,if(offsetsign=1,'+','-') as offsetsign from {divine_timezone}" ; 
+  $query="select tid,name,offsettime,if(offsetsign=1,'+','-') as offsetsign from {divine_timezone} order by name asc" ; 
   $db_result=db_query($query);
   if($mode==1){
    return $db_result;
@@ -563,7 +563,7 @@ function fetch_guru_list(){
   $flag=0;
   $table_string  = $returnString.'!#@!$#!';
   $table_string .= '<table border="0" cellpadding="0" cellspacing="0" width="100%">';
-  $table_string .= '<tr><td colspan="2" align="left"><b>List of available gurus for this package</b></td></tr>';
+  $table_string .= '<tr><td colspan="2" align="left"><b>List of available teachers for this package</b></td></tr>';
   $table_string .= '<tr>';
   $i=0;
   $cnt=0;
@@ -602,9 +602,8 @@ function fetch_guru_list(){
                          <td>'.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.'</td>
                      </tr>
 		     <tr>
-			 <td>'.
-			       substr($userArray->profile_inst_desc,0,200).
-			 '<br/><a href="javascript:void(0);" onclick="openGuruDetails('.$row->uid.')">'.t('Teacher Profile').'</a>
+			 <td>
+			   <a href="javascript:void(0);" onclick="openGuruDetails('.$row->uid.')">'.t('View Profile').'</a>
 			 </td>
                      </tr>
 		     <tr>
@@ -612,7 +611,7 @@ function fetch_guru_list(){
                      </tr>
 		     <tr>
 			 <td valign="bottom">
-			   <input type="button" value="Select a teacher" onclick="selectGuru('.$row->uid.')" />
+			   <input type="button" value="Select teacher" onclick="selectGuru('.$row->uid.')" />
 			 </td>
                      </tr>'; 
     $table_string .='</table>';
@@ -624,7 +623,7 @@ function fetch_guru_list(){
   }
   $table_string .='</table>';
   if(!$flag){
-    echo 'No gurus found for this package';
+    echo 'No teachers found for this package';
     return;
   }
   else{
@@ -675,21 +674,28 @@ function fetch_guru_details(){
 		  <legend></legend>
 		  <table border="0" cellpadding="0" cellspacing="0" width="100%">';
     $table_string .= '<tr>
-                        <td rowspan="4" width="'.$width.'" align="center" valign="top" style="border:1px solid black">'
-			 .$profile_image.'<br/>'.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.
+                        <td rowspan="5" width="'.$width.'" align="center" valign="top" style="border:1px solid black">'
+			 .$profile_image.
 			 '<input type="hidden" name="guruname" id="guruname" value="'.$row->name.'" />'.
 			 '<input type="hidden" name="guruid" id="guruid" value="'.$row->uid.'" />'.
 			'</td>
 		      </tr>';
-    $table_string .='<tr>
-			 <td>'.substr($userArray->profile_inst_desc,0,200).'</td>
+    $table_string .='
+                     <tr>
+		       <td>'.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.'
+		       </td>
+		     </tr>
+                     <tr>
+			 <td>
+			   <a href="javascript:void(0);" onclick="openGuruDetails('.$row->uid.')">'.t('View Profile').'</a>
+			 </td>
                      </tr>
 		     <tr>
 			 <td><a href="javascript:void(0);" onclick="openGuruTimeSlotsWithTimezone('.$row->uid.',0);" title="View Time Slots">View Time Slots<a/></td>
                      </tr>
 		     <tr>
 			 <td valign="bottom">
-			   <a href="javascript:void(0)" onclick="showGuruList();" >Change Guru</a>
+			   <input type="button" value="Change Teacher" onclick="showGuruList();" />
 			 </td>
                      </tr>';
     $table_string .='</table>
@@ -1669,7 +1675,7 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
  
   $next_week_counter='<div style="float:right;text-align:right;width:33%"><a href="javascript:void(0);" onclick="loadData('.$gid.','.($week_counter+1).','.$timezoneId.')">'.t('Next Week').'</a></div>';
 
-  $current_week_counter='<div style="float:left;text-align:center;width:33%"><a href="javascript:void(0);" onclick="loadData('.$gid.',0,'.$timezoneId.')">'.t('Curent Week').'</a></div>'; 
+  $current_week_counter='<div style="float:left;text-align:center;width:33%"><a href="javascript:void(0);" onclick="loadData('.$gid.',0,'.$timezoneId.')">'.t('Current Week').'</a></div>'; 
  
   $navaigation_string=$prev_week_counter.$current_week_counter.$next_week_counter.'<div style="clear:both"></div>';
 
@@ -2142,7 +2148,7 @@ function fetch_guru_profile(){
    $userArray->profile_inst_yoga_style = trim($userArray->profile_inst_yoga_style)!=''?trim($userArray->profile_inst_yoga_style):'---';
    $userArray->profile_inst_teaching_exp = trim($userArray->profile_inst_teaching_exp)!=''?trim($userArray->profile_inst_teaching_exp).' years':'---';
 
-  $profileString = 
+  $profileString =
   '<table border="0" cellpadding="0" cellspacing="0">
   <tr>
    <td align="left"><h1>Profile of '.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.'</h1></td>
@@ -2161,14 +2167,16 @@ function fetch_guru_profile(){
        </tr>
        <tr>
         <td>About Me:</td>
-        <td colspan="2">'.$userArray->profile_inst_desc.'</td>
+        <td colspan="2" style="word-break:break-all; word-wrap: break-word;">
+	  <div id="code">'.$userArray->profile_inst_desc.'</div>
+	</td>
        </tr>
       </table>
 	</td>
    </tr>
    <tr>
    <td>
-    <table border="1" cellpadding="0" cellspacing="0">
+    <table border="1" cellpadding="0" cellspacing="0" width="100%">
 	 <tr>
 	  <td>Certifications:</td>
 	  <td colspan="3">'.$userArray->profile_inst_certification.'</td>

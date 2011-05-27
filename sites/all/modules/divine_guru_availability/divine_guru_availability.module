@@ -132,7 +132,7 @@ function enter_availability_form($month_counter=0,$error='') {
   
   //FETCH TIME ZONE INFORMATION
   $query="select t.name from {divine_timezone} t, {users} u where t.tid=u.tid and u.uid=%d";
-  $db_result = db_query($query);
+  $db_result = db_query($query,$uid);
   
   $timezoneFlag = 0 ;
   $timezone_name='---';
@@ -662,10 +662,10 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
   }
 
   if($type!=2){
-    $current_week_counter='<div style="float:left;width:33%;text-align:center">'.l(t('Curent Week'),'guru-availability/display-weekly-availability/0').'</div>';
+    $current_week_counter='<div style="float:left;width:33%;text-align:center">'.l(t('Current Week'),'guru-availability/display-weekly-availability/0').'</div>';
   }
   else{
-    $current_week_counter='<div style="float:left;text-align:center;width:33%"><a href="javascript:void(0);" onclick="loadData('.$gid.',0)">'.t('Curent Week').'</a></div>'; 
+    $current_week_counter='<div style="float:left;text-align:center;width:33%"><a href="javascript:void(0);" onclick="loadData('.$gid.',0)">'.t('Current Week').'</a></div>'; 
   }
 
   $navaigation_string=$prev_week_counter.$current_week_counter.$next_week_counter.'<div style="clear:both"></div>';

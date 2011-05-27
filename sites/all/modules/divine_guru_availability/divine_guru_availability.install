@@ -89,4 +89,7 @@ function divine_guru_availability_install() {
 
 function divine_guru_availability_uninstall() {
   $table_deleted=db_query("DROP TABLE divine_guru_availability");
+  $table_deleted=db_query("DROP TABLE divine_guru_booking");
+  $table_deleted=db_query("DROP TABLE divine_user_package_status");
+  $table_deleted=db_query("DROP TABLE divine_time_slot");
 }

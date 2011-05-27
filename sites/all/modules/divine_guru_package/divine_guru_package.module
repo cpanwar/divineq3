@@ -100,6 +100,7 @@ function enter_mapping_form($error='') {
           where p.package_type=1 
 	 ";
   */
+  /*
   $query="select 
             DISTINCT n.nid,
 	    IF(dgp.uid IS NULL,0,1) as mapped
@@ -107,8 +108,32 @@ function enter_mapping_form($error='') {
 	  {node} n
 	  LEFT JOIN {divine_guru_package} dgp ON (dgp.packageid=n.nid AND dgp.uid=%d)
 	  where n.type='product'
-	  ";
-  $db_result = db_query($query,$uid);
+ 	  ";
+  */
+  $query="select 
+            DISTINCT n.nid,
+	    IF(dgp.uid IS NULL,0,1) as mapped,
+	    0 as isSpecial
+          from
+	  {content_type_product} ctp, 
+	  {node} n
+	  LEFT JOIN {divine_guru_package} dgp ON (dgp.packageid=n.nid AND dgp.uid=%d)
+	  where 
+	     n.type='product'
+	     and n.nid=ctp.nid
+	     and (ctp.field_special_value is null or ctp.field_special_value=0)
+	  UNION 
+          select 
+            DISTINCT n.nid,
+	    IF(dgp.uid IS NULL,0,1) as mapped,
+	    isSpecial
+          from 
+	  {node} n
+	  INNER JOIN {divine_guru_package} dgp ON (dgp.packageid=n.nid AND dgp.uid=%d)
+	  INNER JOIN {content_type_product} ctp ON (n.nid=ctp.nid and ctp.field_special_value=1)
+	  where n.type='product'
+ 	  ";
+  $db_result = db_query($query,$uid,$uid);
 
   $rows=array();
   $flag=false;
@@ -120,31 +145,46 @@ function enter_mapping_form($error='') {
         $style='style="border:1px solid red"';
       }
       $nodeArr=node_load($row->nid);
-      //echo '<pre>';
-      //print_r($nodeArr);
+
       if($row->mapped=='1'){
        $checked='checked';
       }
-      if(file_exists($nodeArr->picture)){
-          $image='<img src="'.$base_url.'/'.$nodeArr->picture.'" />';
+      $path = $nodeArr->field_image_cache['0']['filepath'];
+      if(file_exists($path)){
+         //$image='<img src="'.$base_url.'/'.$nodeArr->picture.'" />';
+	 $image=theme('imagecache', 'product_thumbnail', $path, $alt, $title,  $attributes);
       }
       else{
-         $image='<img src="'.$base_url.'/sites/default/noimage.png" />';
+         //$image='<img src="'.$base_url.'/sites/default/noimage.png" />';
+	 $image=theme('imagecache', 'product_thumbnail', 'sites/default/noimage.png', $alt, $title,  $attributes);
       }
+
+      $disabled = '';
+      $specialImage='';
+      if($row->isSpecial=='1'){ //guru can not de-assign himself from special packages by his own
+        $disabled = 'disabled';
+        $specialImage='<tr><td colspan="2" align="left"><img src="'.$base_url.'/sites/default/special.png" /></td></tr>';
+	$specialImage='';
+	$nodeArr->title = '*** '.$nodeArr->title;
+      }
+
       //field_diet_charts
       $data='<fieldset><legend></legend><table border="0" cellpadding="0" cellspacing="0">
+              '.$specialImage.'
               <tr><td colspan="2">'.l(t($nodeArr->title),'node/'.$row->nid).'</td></tr>
 	      <tr><td rowspan="4" width="15%">'.$image.'<td><tr>
 	      <tr><td>'.$nodeArr->body.'</td></tr>
 	      <tr>
 	        <td>
-		   <b>Validity:</b>'.$nodeArr->field_validity[0]['value'].' Days &nbsp;
-		   <b>Price:</b>'.$nodeArr->sell_price.' &nbsp;
-		   <b>Live Sessions:</b>'.$nodeArr->field_live_sessions[0]['value'].' &nbsp;
+		   <b>Validity: </b>'.$nodeArr->field_validity[0]['value'].' Days &nbsp;
+		   <b>Price: </b>'.uc_currency_format($nodeArr->sell_price).' &nbsp;
+		   <b>Live Sessions: </b>'.$nodeArr->field_live_sessions[0]['value'].' &nbsp;
 		</td>
 		</tr>
-             </table></fieldset>'; 
-      $checkbox='<input type="checkbox" name="mapping_chk[]" value="'.$row->nid.'" '.$checked.'  '.$style.' />';
+              
+             </table></fieldset>';
+      
+      $checkbox='<input type="checkbox" '.$disabled.' name="mapping_chk[]" value="'.$row->nid.'" '.$checked.'  '.$style.' />';
       $rows[]=array($checkbox,$data);
   }
   /*FETCH LIST OF PACKAGES (standard type)*/
@@ -191,9 +231,11 @@ function save_mapping(){
 
   /*FETCH RECORDS FROM AVAILIBILITY TABLE WHICH ARE BOOKED BY NORMAL USERS*/
    $query="select dgb.packageid
-           from {divine_guru_availability} ga , {divine_guru_booking} dgb
-	   where ga.uid=%d and ga.isAvailable=0 and ga.dated>now()
-	   and ga.aid=dgb.aid";
+           from {divine_guru_availability} ga , {divine_guru_booking} dgb , {divine_guru_package} dgp 
+	   where ga.uid=%d and ga.isAvailable=0 and ga.dated>=current_date()
+	   and ga.aid=dgb.aid
+	   and dgb.packageid=dgp.packageid
+	   and dgp.isSpecial=0";
      
    $db_result = db_query($query,$uid);
 
@@ -201,11 +243,12 @@ function save_mapping(){
    while ($row = db_fetch_object($db_result)) {
         $booked_records[] = $row->packageid;
    }
+
    $booked_count=count($booked_records);
    for($i=0; $i<$booked_count; $i++){
       if(!in_array($booked_records[$i],$mapping_chk)){
        /***May be we need to send mail to affected users about that***/
-       drupal_set_message("Some user booked classes corresponding to this package.You can not de-assign yourself from this package.");
+       drupal_set_message("Some user booked classes corresponding to this package.You can not de-assign yourself from this package.",'error');
        drupal_goto('guru-package/package/'.$booked_records[$i]);
      }      
    }
@@ -217,10 +260,11 @@ function save_mapping(){
    if($excluded_packages!=''){
      $excluded_packages_condition=' AND packageid not in ('.$excluded_packages.')';
    }
-   $delete_query="delete from {divine_guru_package} 
-                 where uid=%d $excluded_packages_condition";
-   db_query($delete_query,$uid);
 
+  $delete_query = "delete from {divine_guru_package} 
+                   where uid=%d and isSpecial = 0 $excluded_packages_condition";
+
+  db_query($delete_query,$uid);
 
   /*INSERT QUERY*/
   $insert_query='';

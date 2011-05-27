@@ -1,0 +1,286 @@
+<?php
+/**
+ * Implementation of hook_perm().
+ */
+function divine_guru_special_package_perm() {
+  return array('select specialpackages','manage specialpackages');
+}
+
+/**
+ * Implementation of hook_access().
+ */
+function divine_guru_special_package_access($op, $account) {
+  if ($op == 'create') {
+    return user_access('select specialpackages');
+  }
+  elseif ($op == 'update') {
+    if (user_access('select specialpackages')) {
+      return TRUE;
+    }
+    else {
+      return NULL;
+    }
+  } 
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function divine_guru_special_package_menu() {
+
+  $items = array();
+
+	$items['special-package/package'] = array(
+	'title' => 'Subscribe/Unsubscribe Special Packages',
+	'description' => 'Subscribe/Unsubscribe Special Packages',
+	'page callback' => 'enter_special_mapping_form',
+	'access arguments' => array('select specialpackages'),
+	);
+        
+	$items['special-package/fetch-special-package-mapping'] = array(
+	'page callback' => 'fetch_special_package_mapping',
+	'access arguments' => array('manage specialpackages'),
+	);
+
+	$items['special-package/add-mapping'] = array(
+	'page callback' => 'save_special_mapping',
+	'access arguments' => array('manage specialpackages'),
+	);
+
+  return $items;
+}
+
+/**
+ * This function is used to check whether one package is special and active or not.
+ */
+function isSpecialPackage($packageId){
+  $query = "select count(*) as cnt 
+            from {node} n , {content_type_product} ctp
+	    where n.type='product' and n.status=1
+	    and n.nid=ctp.nid and ctp.field_special_value=1
+	   ";
+  $db_result = db_query($query,$packageId);
+  $cnt=0;
+  while ($row = db_fetch_object($db_result)) {
+    $cnt = $row->cnt;
+  }
+  if($cnt>0){
+   return true;
+  }
+  else{
+   return false;
+  }
+}
+
+/**
+ * This function is used to fetch list of teacher corresponding to a special package.
+ */
+function fetch_special_package_mapping(){
+  $packageId = trim($_POST['p']);
+  if($packageId==''){
+    die("Invalid input data");
+  }
+
+  //check whether it is a special package or not
+  if(!isSpecialPackage($packageId)){
+    die('This is not a spcial package or it is disabled');
+  }
+
+  $check_all='<input type="checkbox" name="mapping_chk_all" onclick="checkAll(this.checked);" />&nbsp;';
+
+  $header=array(array('data'=>$check_all,'style'=>'width:9%'),t('Teacher'));
+
+  //fetch list of teachers
+  $query = "select u.uid ,IFNULL(dgp.gpid,-1) as mapped
+            from {role} r, {users_roles} ur,
+	    {users} u
+	    LEFT JOIN {divine_guru_package} dgp ON (dgp.uid=u.uid and dgp.packageid=%d and dgp.isSpecial=1)
+	    where u.uid=ur.uid and ur.rid=r.rid and lcase(trim(r.name)) = 'expert'
+	   ";
+  
+  $db_result = db_query($query,$packageId);
+
+  $flag = false;
+  $rows=array();
+
+  while ($row = db_fetch_object($db_result)) {
+     $flag = true;
+     $checked = '';
+     $userArray = user_load($row->uid);
+
+     $userArray->profile_inst_fname = trim($userArray->profile_inst_fname)!=''?trim($userArray->profile_inst_fname):'---';
+     $userArray->profile_inst_lname = trim($userArray->profile_inst_lname)!=''?trim($userArray->profile_inst_lname):'';
+
+     $teacherName = $userArray->profile_inst_fname.' '.$userArray->profile_inst_lname;
+     
+     if($row->mapped != '-1'){
+       $checked = 'checked';
+     }
+     $checkbox='<input type="checkbox" '.$disabled.' name="mapping_chk[]" value="'.$row->uid.'" '.$checked.'  '.$style.' />';
+     $rows[]=array($checkbox,$teacherName);
+  }
+
+  if(!$flag){
+    $rows[]=array(
+                    array('data'=>'<b>No Teachers Found</b>','colspan'=>2,'style'=>'text-align:center')
+		 );
+    $submit_button='';
+  }
+  else{
+    $submit_button='<div style="text-align:center">
+                     <input type="submit" name="save_mapping_button" value="Save" onclick="saveSpecialMapping();" />
+		    </div>';
+  }
+
+  echo theme('table', $header, $rows).$submit_button;
+  return;
+}
+
+/**
+ * This function is used to display UI where user can select/de-select packages created by admin.
+ */
+function enter_special_mapping_form() {
+  global $base_url;
+
+  $module_path=drupal_get_path('module', 'divine_guru_special_package');
+  /*Add css and js files for popup functionality*/
+  drupal_add_js($module_path.'/validation.js','module');
+  drupal_add_js('var jsURL="'.$base_url.'/special-package/"','inline');
+
+  global $user,$base_url;
+  $uid=$user->uid;
+
+  //fetch special type of packages
+  $query = "select n.nid,n.title 
+            from {node} n , {content_type_product} ctp
+	    where n.type='product' and n.status=1
+	    and n.nid=ctp.nid and ctp.field_special_value=1
+	   ";
+  $db_result = db_query($query,$uid,$uid);
+
+  $optionString = '';
+  while ($row = db_fetch_object($db_result)) {
+    $optionString .= '<option value="'.$row->nid.'">'.$row->title.'</option>';
+  }
+  $outputString  = '<form name="mappingForm" id="mappingForm" action="" method="post" onsubmit="return false;">';
+  $outputString .= '<table border="0" cellpadding="0" cellspacing="0">';
+  $outputString .= '<tr>
+                    <td width="18%"><b>Select Package :</b></td>
+                    <td width="50%" align="left">
+		     <select name="packageid" id="packageid" onchange="cleanUpData();" style="width:350px;">
+		      <option value="">Select a package</option>
+		     '.$optionString.'
+		     </select>
+		    </td>
+		    <td align="left">
+		     <input type="button" value="Submit" onclick="fetchTeachers();" />
+		    </td>
+                   </tr>
+		   <tr>
+		    <td colspan="3">
+		     <div id="teacherDisplayDiv"></div>
+		    </td>
+                   </tr>
+		   </tr>
+		  </table>';
+  $outputString .= '</form>';
+
+  $blockPageDivString = '<div id="blockPopup" style="display:none;position:fixed;_position:absolute;height:100%;width:100%;top:0;
+  left:0;background:#000000;border:1px solid #cecece;z-index:1;" align="center">
+                      <div style="border:1px solid black; display:block; padding:5px; background-color:#fbffb3; color:#000; width:200px;"><b>Please Wait......</b></div>
+                   </div>';
+
+  return  $outputString.$blockPageDivString;
+ 
+}
+
+/**
+ * This function is used for server side checking of user entered data
+ * save mapping of packages with gurus
+ */
+function save_special_mapping(){
+  global $user;
+  $uid=$user->uid;
+
+  $packageId = trim($_POST['packageid']);
+  if($packageId==''){
+    die('Select a package');
+  }
+  
+  $mapping_chk=$_POST['mapping_chk'];
+  if($mapping_chk==''){
+   $mapping_chk=array();
+  }
+  $count=count($mapping_chk);
+
+  /*FETCH RECORDS FROM AVAILIBILITY TABLE WHICH ARE BOOKED BY NORMAL USERS*/
+   $query="select ga.uid
+           from {divine_guru_availability} ga , {divine_guru_booking} dgb
+	   where dgb.packageid=%d and ga.isAvailable=0 and ga.dated>=current_date()
+	   and ga.aid=dgb.aid
+	   ";
+     
+   $db_result = db_query($query,$packageId);
+
+   $booked_records=array();
+   while ($row = db_fetch_object($db_result)) {
+        $booked_records[] = $row->uid;
+   }
+   $booked_count=count($booked_records);
+   for($i=0; $i<$booked_count; $i++){
+      if(!in_array($booked_records[$i],$mapping_chk)){
+       /***May be we need to send mail to affected users about that***/
+       
+       $userArray = user_load($booked_records[$i]);
+       $userArray->profile_inst_fname = trim($userArray->profile_inst_fname)!=''?trim($userArray->profile_inst_fname):'---';
+       $userArray->profile_inst_lname = trim($userArray->profile_inst_lname)!=''?trim($userArray->profile_inst_lname):'';
+       $teacherName = $userArray->profile_inst_fname.' '.$userArray->profile_inst_lname;
+
+       die("Some user booked classes corresponding to this package for teacher : ".$teacherName.".\nYou can not de-assign this teacher from this package.");
+     }
+   }
+
+
+  //DELETE UNCHEKED RECORDS(excluding users who are ticked and not booked corresponding to this package)
+   $delete_query='';
+   $excluded_users=implode(',',$mapping_chk);
+   if($excluded_users!=''){
+     $excluded_users_condition=' AND uid not in ('.$excluded_users.')';
+   }
+
+  $delete_query = "delete from {divine_guru_package} 
+                   where packageid=%d and isSpecial = 1 $excluded_users_condition";
+
+  db_query($delete_query,$packageId);
+
+  /*INSERT QUERY*/
+  $insert_query='';
+  for($i=0; $i<$count; $i++){
+     
+     $userid=$mapping_chk[$i];
+     $query="select gpid from {divine_guru_package} where uid=%d and packageid=%d";
+     $db_result = db_query($query,$userid,$packageId);
+     $gpid='';
+     while ($row = db_fetch_object($db_result)) {
+      $gpid = $row->gpid;
+     }
+     if($gpid==''){
+       //do the insertion
+       $insert_query ="insert into {divine_guru_package} (uid,packageid,isSpecial)
+                      values (%d,%d,%d)";
+       db_query($insert_query,$userid,$packageId,1);
+     }
+  }
+  
+  /*
+   if($count>0){
+    die('Mapping of packages is successful');
+   }
+   else{
+    drupal_set_message('De-assigning of packages is successful');
+   }
+  */
+  echo 'Data saved';
+  return;
+}
+?>

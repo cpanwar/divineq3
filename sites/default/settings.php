@@ -154,6 +154,7 @@ $update_free_access = FALSE;
  * settings are used there. Settings defined here should not be
  * duplicated there so as to avoid conflict issues.
  */
+date_default_timezone_set("UTC"); 
 ini_set('arg_separator.output',     '&amp;');
 ini_set('magic_quotes_runtime',     0);
 ini_set('magic_quotes_sybase',      0);

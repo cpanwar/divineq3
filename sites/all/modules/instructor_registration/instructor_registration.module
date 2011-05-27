@@ -71,7 +71,7 @@ function user_instructor_register_form() {
 	);
 	$form[term]['term_check'] = array(
 		'#type' => 'checkbox',
-		'#title' => t(' I have read and accepted the above Terms & Conditions and the information submitted by me is true and complete to the best of my knowledge.'),
+		'#title' => t('<span title="This field is required." class="form-required">*</span> I have read and accepted the above Terms & Conditions and the information submitted by me is true and complete to the best of my knowledge.'),
 		'#size' => 10,
 	);
 
@@ -239,7 +239,7 @@ function instructor_registration_mail($key, &$message, $params) {
 */
 
 function fetch_timezone(){
-	$query="select tid,name,offsettime,if(offsetsign=1,'+','-') as offsetsign from {divine_timezone}" ; 
+	$query="select tid,name,offsettime,if(offsetsign=1,'+','-') as offsetsign from {divine_timezone} order by name asc" ; 
 	$db_result=db_query($query);
 	$rs = array();
 	while ($row = db_fetch_object($db_result)){

@@ -1,0 +1,5 @@
+name = Divine Guru Special Package Mapping 
+description = Assign/De-assign Gurus with/from Special Packages.
+dependencies[] = divine_guru_package
+package = Guru
+core = 6.x
