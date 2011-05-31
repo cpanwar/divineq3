@@ -1,0 +1,33 @@
+<?php
+// ; $Id: membership.info,v 1.6 20011/04/27 Elan $
+
+/**
+ *  Implementation of hook_form_alter().
+ */
+function membership_form_alter(&$form, $form_state, $form_id) {
+  
+  //echo"<pre/>";
+  //  print_r($form);
+  /*if($form_id == 'class_shedule_node_form'){
+      $form['helptext'] = array (
+                                 '#title' => 'test',
+                                '#value' => t('Choose from a variety of class types and experience levels and we\'ll create a unique class experience to meet your individual needs.'),
+                                
+                                );
+  }*/
+  if ($form_id == 'user_register') {
+     //$form['account']['name']['#title'] =  'anjan';
+      $form['account']['#type'] = 'markup';
+
+      /*$form['account']['profile_email'] = array (
+                    '#type' => 'textfield',
+                    '#title' => 'Confirm Email Address',
+                    '#default_value' => '',
+                    '#maxlength' => '255',
+                    '#description' => '',
+                    '#required' => 1,
+                );
+      */
+
+  }
+}

@@ -1,0 +1,25 @@
+<?php
+// $Id:divine_guru_package.install, 2011/05/12 20:07:43  Exp $
+
+/**
+  * @file
+  * Describes tables needed for mapping of gurus and packages.
+  */
+
+
+function divine_guru_package_install() {
+  $table_created = db_query ("
+				CREATE TABLE IF NOT EXISTS `divine_guru_package` (
+				  `gpid` int(11) NOT NULL AUTO_INCREMENT,
+				  `uid` int(11) NOT NULL,
+				  `packageid` int(11) NOT NULL,
+				  `isSpecial` tinyint(4) NOT NULL DEFAULT '0',
+				  PRIMARY KEY (`gpid`)
+				) ENGINE=MyISAM  DEFAULT CHARSET=utf8 AUTO_INCREMENT=1"
+			    );
+}
+
+
+function divine_guru_package_uninstall() {
+  $table_deleted=db_query("DROP TABLE divine_guru_package");
+}

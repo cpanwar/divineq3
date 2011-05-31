@@ -1,0 +1,224 @@
+<?php
+
+/**
+ * @file
+ * Provides install and uninstall functions for rotor.
+ *
+ * @author Tom Kirkpatrick (mrfelton), www.kirkdesigns.co.uk
+ */
+
+/**
+ * Implementation of hook_install().
+ */
+function rotor_install() {
+  module_enable(array('jquery_plugin'));
+  module_enable(array('upload_element'));
+  drupal_install_schema('rotor');
+  db_query("DELETE FROM {cache_views}");
+  drupal_set_message(t('Rotor Banner installed'));
+}
+
+/**
+ * Implementation of hook_enable().
+ */
+function rotor_enable() {
+  module_enable(array('jquery_plugin'));
+  module_enable(array('upload_element'));
+  db_query("DELETE FROM {cache_views}");
+}
+
+/**
+ * Implementation of hook_disable().
+ * Empty the rotor caches.
+ */
+function rotor_disable() {
+  db_query("DELETE FROM {cache_views}");
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function rotor_uninstall() {
+  $result = db_query("SELECT nid FROM {node} WHERE type = 'rotor_item'");
+  if ($result) {
+    while ($node = db_fetch_array($result)) {
+      node_delete($node);
+    }
+  }
+  drupal_uninstall_schema('rotor');
+  db_query("DELETE FROM {variable} WHERE name LIKE 'rotor_%'");
+  
+  $ret = array();
+  $displays = array(
+    'rotor', 
+    );
+  $result = db_query("SELECT DISTINCT vid FROM {views_display} WHERE display_plugin IN ('". implode("','", $displays) ."')");
+  while ($row = db_fetch_array($result)) {
+    db_query("DELETE FROM {views_view} WHERE vid = %d", $row['vid']);
+    db_query("DELETE FROM {views_display} WHERE vid = %d", $row['vid']);
+  }
+  db_query("DELETE FROM {cache_views}");
+  return $ret;
+  
+  drupal_set_message(t('Rotor Banner unistalled'));
+}
+
+/**
+ * Implementation of hook_schema().
+ */
+function rotor_schema() {
+  $schema['rotor_item'] = array(
+    'fields' => array(
+      'nid'    => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'The node id associated.'),
+      'fid' => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'The {files}.fid.'),
+      'alt_text' => array('type' => 'varchar', 'not null' => FALSE, 'length' => 255, 'description' => 'The alt text for the rotor item image.'),
+      'url' => array('type' => 'varchar', 'not null' => FALSE, 'length' => 255, 'description' => 'The url of the image that will be actived.'),
+      'link_target' => array('type' => 'varchar', 'not null' => FALSE, 'length' => 255, 'description' => 'The target for the link.'),
+      'image_title' => array('type' => 'varchar', 'not null' => FALSE, 'length' => 255, 'description' => 'The image title.'),
+    ),
+    'primary key' => array('nid'),
+    'indexes' => array(
+      'rotor_item_fid' => array('fid'),
+    ),
+    'description' => 'The file path for the rotor item image.',
+  );
+  return $schema;
+}
+
+/**
+ * Implementation of hook_update_N().
+ */
+function rotor_update_6000() {
+  $ret = array();
+  db_add_field($ret, 'rotor_item', 'url', array(
+    'type' => 'varchar', 'not null' => FALSE, 'length' => 255, 'description' => 'The url of the image that will be actived.'
+  ));
+  db_add_field($ret, 'rotor_item', 'alt_text', array(
+    'type' => 'varchar', 'not null' => FALSE, 'length' => 255, 'description' => 'The alt text for the rotor item image.'
+  ));
+  return $ret;
+}
+
+function rotor_update_6001() {
+  $ret = array();
+  db_add_field($ret, 'rotor_item', 'link_target', array(
+    'type' => 'varchar', 'not null' => FALSE, 'length' => 255, 'description' => 'The target for the link.'
+  ));
+  return $ret;
+}
+
+function rotor_update_6200() {
+  $ret = array();
+  $modules = array(
+     'upload_element' => t('Upload element'),
+     'jquery_plugin' => t('jQuery plugin'),
+     'views_ui' => t('Views UI'),
+   );
+   
+  // Prevent the update and warn if the new required modules aren't enabled.
+  if ($ret = rotor_check_update_abort($modules, 6200)) {
+    return $ret;
+  }
+
+  // grab all the existing rotor items
+  $old_items = db_query('SELECT * from {rotor_item}');
+ 
+  db_change_field($ret, 'rotor_item', 'file_path', 'fid', array(
+    'type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'The {files}.fid.'
+  ));
+  db_add_field($ret, 'rotor_item', 'image_title', array(
+    'type' => 'varchar', 'not null' => FALSE, 'length' => 255, 'description' => 'The image title.'
+  ));
+
+  // update rotor items to use {files} table correctly
+  while ($old_item = db_fetch_object($old_items)) {
+    $file = db_fetch_object(db_query("SELECT * from {files} where filepath='%s'", $old_item->file_path));
+    $result = db_query("UPDATE {rotor_item} set fid=%d where nid=%d", $file->fid, $old_item->nid);
+    $ret[] = array('success' => $result !== FALSE, 'query' => 'Update entries in {rotor_item} table to use reference to fid in {files} table');
+  }
+  
+  // update the blocks entry
+  update_sql("UPDATE {blocks} set module='views', delta='rotor-block_1' where module='rotor'");
+  return $ret;
+}
+
+/*
+ * Add index on the fid column
+ */
+function rotor_update_6201() {
+  $ret = array();
+  db_add_index($ret, 'rotor_item', 'rotor_item_fid', array('fid'));
+  return $ret;
+}
+
+/**
+ * Helper function for determining new module dependencies.
+ *
+ * @param $modules
+ *   An associative array of modules to check. Key is module name,
+ *   value is human-readable name.
+ * @return
+ *   A string containing the error message, if any -- FALSE otherwise.
+ */
+function rotor_check_dependencies($modules) {
+  $message = FALSE;
+  $messages = array();
+  foreach ($modules as $module => $name) {
+    if (!module_exists($module)) {
+      $messages[] = t('The %module module is not enabled.', array('%module' => $name));
+    }
+  }
+  if (!empty($messages)) {
+    $message = t('The update was aborted for the following reasons: !messages', array('!messages' => theme('item_list', $messages)));
+  }
+
+  return $message;
+}
+
+
+/**
+ * Helper function for rolling back updates if dependency checks fail.
+ *
+ * @param $modules
+ *   An associative array of modules to check. Key is module name,
+ *   value is human-readable name.
+ * @param $current_update
+ *   The current update.
+ * @return
+ *   If a dependency check fails, a return array marked as failed (with
+ *   a user message) -- otherwise, an empty array.
+ */
+function rotor_check_update_abort($modules, $current_update) {
+  $ret = array();
+
+  // Dependency check failed.
+  if ($message = rotor_check_dependencies($modules)) {
+    // Remove all subsequent rotor updates.
+    if (is_array($_SESSION['updates_remaining'])) {
+      foreach ($_SESSION['updates_remaining'] as $key => $update) {
+        if ($update['module'] = 'rotor' && intval($update['version']) > $current_update) {
+          unset($_SESSION['updates_remaining'][$key]);
+        }
+      }
+      // Reset the internal pointer on this session variable, otherwise
+      // core's update_do_updates() function could have a problem
+      // unsetting the currently running update.
+      reset($_SESSION['updates_remaining']);
+      // Clarify the nature of the error, and what to do next.
+      // Unfortunately, there's no elegant way to properly reset the schema version
+      // programatically, so we'll have to instruct the user to redo the update
+      // manually.
+      $message .= '<p>'.
+        t("This and all subsequent updates of Rotor were safely aborted.
+          Correct the problems listed above, then <a href=\"!update_path\">re-run update.php</a>,
+          click 'Select versions', select update %update for rotor, and click 'Update'.",
+          array('%update' => $current_update, '!update_path' => base_path() .'update.php?op=selection')) .'</p><p><em>'.
+        t("Note: you will most likely need to disable the Rotor module temporarily in order to resolve the issues above.
+          If necessary, please refer to Rotor's UPGRADE.txt for further details regarding this upgrade problem.")
+        .'</em></p>';
+
+      $ret['#abort'] = array('success' => FALSE, 'query' => $message);
+    }
+  }
+  return $ret;
+}

@@ -1,0 +1,19 @@
+.booking_tables tbody {
+    border-top:none;
+}
+.timeslot_tables tbody {
+  border-top:none;
+}
+.timeslot_tables td {
+  padding:0.3em 0.1em;
+}
+
+/*CSS for forced wrap in About Me section*/
+#code{
+margin:0;
+width:475px;
+height:90px;
+overflow:auto;
+padding:2px;
+word-wrap:break-word;
+}

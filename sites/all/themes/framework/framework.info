@@ -1,0 +1,25 @@
+name = Framework
+description = Framework is a blank canvas for theme developers. Use Framework as a starting point to facilitate your theme development.
+version = VERSION
+core = 6.x
+engine = phptemplate
+stylesheets[all][] = style.css
+
+regions[left] = Left sidebar
+regions[right] = Right sidebar
+regions[header] = Header
+regions[topmenu] = Top Menu
+regions[content] = Content
+regions[navigation] = Navigation
+regions[explore_programs] = Explore Programs
+regions[footer_content] = Footer Content
+regions[footer] = Footer
+regions[footer_links] = Footer Links
+
+
+; Information added by drupal.org packaging script on 2011-03-09
+version = "6.x-3.1"
+core = "6.x"
+project = "framework"
+datestamp = "1299698767"
+

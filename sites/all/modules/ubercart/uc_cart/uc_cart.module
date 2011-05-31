@@ -499,25 +499,25 @@ function uc_cart_block($op = 'list', $delta = 0, $edit = array()) {
           // Build the item count text and cart links.
           $item_text = format_plural($item_count, '<span class="num-items">@count</span> Item', '<span class="num-items">@count</span> Items');
 
-          $summary_links = array(
-            'cart-block-view-cart' => array(
-              'title' => t('View cart'),
-              'href' => 'cart',
-              'attributes' => array('rel' => 'nofollow'),
-            ),
-          );
+          //$summary_links = array(
+          //  'cart-block-view-cart' => array(
+          //    'title' => t('View cart'),
+          //    'href' => 'cart',
+          //    'attributes' => array('rel' => 'nofollow'),
+          //  ),
+          //);
 
           // Only add the checkout link if checkout is enabled.
-          if (variable_get('uc_checkout_enabled', TRUE)) {
-            $summary_links['cart-block-checkout'] = array(
-              'title' => t('Checkout'),
-              'href' => 'cart/checkout',
-              'attributes' => array('rel' => 'nofollow'),
-            );
-          }
+          //if (variable_get('uc_checkout_enabled', TRUE)) {
+          //  $summary_links['cart-block-checkout'] = array(
+          //    'title' => t('Checkout'),
+          //    'href' => 'cart/checkout',
+          //    'attributes' => array('rel' => 'nofollow'),
+          //  );
+          //}
 
           $block = array(
-            'subject' => theme('uc_cart_block_title', $title, $icon_class, $collapsible),
+            //'subject' => theme('uc_cart_block_title', $title, $icon_class, $collapsible),
             'content' => theme('uc_cart_block_content', $help_text, $items, $item_count, $item_text, $total, $summary_links),
           );
         }
@@ -749,15 +749,17 @@ function theme_uc_cart_block_items($items) {
  * @ingroup themeable
  */
 function theme_uc_cart_block_summary($item_count, $item_text, $total, $summary_links) {
+  global $base_url;
   $context = array(
     'revision' => 'themed-original',
     'type' => 'amount',
   );
+  $url = $base_url.'/';
   // Build the basic table with the number of items in the cart and total.
-  $output = '<table class="cart-block-summary"><tbody><tr>'
-           .'<td class="cart-block-summary-items">'. $item_text .'</td>'
+  $output = '<a href="'.$url.'cart"><table class="cart-block-summary"><tbody><tr>'
+           .'<td class="cart-block-summary-items">'.$item_text.'</td>'
            .'<td class="cart-block-summary-total"><label>'. t('Total:')
-           .'</label> '. uc_price($total, $context) .'</td></tr>';
+           .'</label> ('. uc_price($total, $context) .')</td></tr>';
 
   // If there are products in the cart...
   if ($item_count > 0) {
@@ -766,7 +768,7 @@ function theme_uc_cart_block_summary($item_count, $item_text, $total, $summary_l
              . theme('links', $summary_links) .'</td></tr>';
   }
 
-  $output .= '</tbody></table>';
+  $output .= '</tbody></table></a>';
 
   return $output;
 }

@@ -1,0 +1,95 @@
+<?php
+// $Id:divine_guru_availability.install, 2011/05/16 20:07:43  Exp $
+
+/**
+  * @file
+  * Describes tables needed for guru availability feature
+  */
+
+function divine_guru_availability_install() {
+  $table_created = db_query ("
+				CREATE TABLE IF NOT EXISTS `divine_guru_availability` (
+				  `aid` int(11) NOT NULL AUTO_INCREMENT,
+				  `uid` int(11) NOT NULL,
+				  `dated` date NOT NULL,
+				  `sid` int(11) NOT NULL,
+				  `start_timestamp` int(11) NOT NULL,
+				  `end_timestamp` int(11) NOT NULL,
+				  `tid` int(11) NOT NULL,
+				  `isAvailable` tinyint(4) NOT NULL DEFAULT '1',
+				  PRIMARY KEY (`aid`)
+				) ENGINE=InnoDB  DEFAULT CHARSET=latin1 AUTO_INCREMENT=1"
+			    );
+ $table_created = db_query("
+			CREATE TABLE IF NOT EXISTS `divine_guru_booking` (
+			  `bid` int(11) NOT NULL AUTO_INCREMENT,
+			  `aid` int(11) NOT NULL,
+			  `packageid` int(11) NOT NULL,
+			  `uid` int(11) NOT NULL COMMENT 'id of user who booked the guru',
+			  `tid` int(11) NOT NULL COMMENT 'user selected time zone',
+			  `class_date` date NOT NULL,
+			  `class_time` varchar(20) NOT NULL,
+			  `class_start_timestamp` int(11) NOT NULL,
+			  `class_end_timestamp` int(11) NOT NULL,
+			  `isTrial` tinyint(4) NOT NULL DEFAULT '0',
+			  PRIMARY KEY (`bid`)
+			) ENGINE=InnoDB  DEFAULT CHARSET=utf8 AUTO_INCREMENT=1"
+		);
+
+  $table_created = db_query("
+			CREATE TABLE IF NOT EXISTS `divine_user_package_status` (
+			  `statusid` int(11) NOT NULL AUTO_INCREMENT,
+			  `packageid` int(11) NOT NULL,
+			  `uid` int(11) NOT NULL,
+			  `classes_left` int(11) NOT NULL,
+			  `expiry_timestamp` int(11) NOT NULL,
+			  PRIMARY KEY (`statusid`)
+			) ENGINE=InnoDB  DEFAULT CHARSET=utf8 AUTO_INCREMENT=1"
+		);
+
+  $table_created = db_query("
+			CREATE TABLE IF NOT EXISTS `divine_time_slot` (
+			  `sid` int(11) NOT NULL AUTO_INCREMENT,
+			  `name` varchar(50) NOT NULL,
+			  `start_time` varchar(5) NOT NULL,
+			  `end_time` varchar(5) NOT NULL,
+			  PRIMARY KEY (`sid`)
+			) ENGINE=MyISAM  DEFAULT CHARSET=utf8 AUTO_INCREMENT=1 "
+		 );
+
+  $table_created = db_query("
+			INSERT INTO `divine_time_slot` (`sid`, `name`, `start_time`, `end_time`)
+			VALUES
+			(1, '0am---1am', '00:00', '01:00'),
+			(2, '1am---2am', '01:00', '02:00'),
+			(3, '2am---3am', '02:00', '03:00'),
+			(4, '3am---4am', '03:00', '04:00'),
+			(5, '4am---5am', '04:00', '05:00'),
+			(6, '5am---6am', '05:00', '06:00'),
+			(7, '6am---7am', '06:00', '07:00'),
+			(8, '7am---8am', '07:00', '08:00'),
+			(9, '8am---9am', '08:00', '09:00'),
+			(10, '9am---10am', '09:00', '10:00'),
+			(11, '10am---11am', '10:00', '11:00'),
+			(12, '11am---12pm', '11:00', '12:00'),
+			(13, '12pm---1pm', '12:00', '13:00'),
+			(14, '1pm---2pm', '13:00', '14:00'),
+			(15, '2pm---3pm', '14:00', '15:00'),
+			(16, '3pm---4pm', '15:00', '16:00'),
+			(17, '4pm---5pm', '16:00', '17:00'),
+			(18, '5pm---6pm', '17:00', '18:00'),
+			(19, '6pm---7pm', '18:00', '19:00'),
+			(20, '7pm---8pm', '19:00', '20:00'),
+			(21, '8pm---9pm', '20:00', '21:00'),
+			(22, '9pm---10pm', '21:00', '22:00'),
+			(23, '10pm---11pm', '22:00', '23:00'),
+			(24, '11pm---0am', '23:00', '23:59')"
+		 );
+ }
+
+function divine_guru_availability_uninstall() {
+  $table_deleted=db_query("DROP TABLE divine_guru_availability");
+  $table_deleted=db_query("DROP TABLE divine_guru_booking");
+  $table_deleted=db_query("DROP TABLE divine_user_package_status");
+  $table_deleted=db_query("DROP TABLE divine_time_slot");
+}

@@ -1,0 +1,122 @@
+<?php
+// $Id: unlimited_css.module,v 1.4 2010/02/15 10:39:50 antoniodemarco Exp $
+
+/**
+ * @file
+ * IE Unlimited CSS Loader module.
+ *
+ * This module solves the Internet Explorer limitation of loading
+ * not more then 30 CSS files per HTML page  (http://support.microsoft.com/kb/262161).
+ */
+
+/**
+ * Implementation of hook_preprocess_page().
+ */
+function unlimited_css_preprocess_page(&$vars) {
+  $css = $vars['css'];
+  $output = array();
+  $no_module_preprocess = array();
+  $no_theme_preprocess = array();
+
+  // Using code from d6 core's drupal_get_css() to provide proper
+  // CSS ordering and dealing with other issues.
+  // Thanks donquixote (http://drupal.org/user/459338) for pointing this out:
+  // http://drupal.org/node/693180#comment-2596580
+  $preprocess_css = (variable_get('preprocess_css', FALSE) && (!defined('MAINTENANCE_MODE') || MAINTENANCE_MODE != 'update'));
+  $directory = file_directory_path();
+  $is_writable = is_dir($directory) && is_writable($directory) && (variable_get('file_downloads', FILE_DOWNLOADS_PUBLIC) == FILE_DOWNLOADS_PUBLIC);
+
+  // A dummy query-string is added to filenames, to gain control over
+  // browser-caching. The string changes on every update or full cache
+  // flush, forcing browsers to load a new copy of the files, as the
+  // URL changed.
+  $query_string = '?'. substr(variable_get('css_js_query_string', '0'), 0, 1);
+
+  foreach ($css as $media => $types) {
+    // If CSS preprocessing is off, we still need to output the styles.
+    // Additionally, go through any remaining styles if CSS preprocessing is on and output the non-cached ones.
+    foreach ($types as $type => $files) {
+      if ($type == 'module') {
+        // Setup theme overrides for module styles.
+        $theme_styles = array();
+        foreach (array_keys($css[$media]['theme']) as $theme_style) {
+          $theme_styles[] = basename($theme_style);
+        }
+      }
+      foreach ($types[$type] as $file => $preprocess) {
+        // If the theme supplies its own style using the name of the module style, skip its inclusion.
+        // This includes any RTL styles associated with its main LTR counterpart.
+        if ($type == 'module' && in_array(str_replace('-rtl.css', '.css', basename($file)), $theme_styles)) {
+          // Unset the file to prevent its inclusion when CSS aggregation is enabled.
+          unset($types[$type][$file]);
+          continue;
+        }
+        // Only include the stylesheet if it exists.
+        if (file_exists($file)) {
+          if (!$preprocess || !($is_writable && $preprocess_css)) {
+            // If a CSS file is not to be preprocessed and it's a module CSS file, it needs to *always* appear at the *top*,
+            // regardless of whether preprocessing is on or off.
+            if (!$preprocess && $type == 'module') {
+              $no_module_preprocess[] = array($media, base_path() . $file . $query_string);
+            }
+            // If a CSS file is not to be preprocessed and it's a theme CSS file, it needs to *always* appear at the *bottom*,
+            // regardless of whether preprocessing is on or off.
+            else if (!$preprocess && $type == 'theme') {
+              $no_theme_preprocess[] = array($media, base_path() . $file . $query_string);
+            }
+            else {
+              $output[] = array($media, base_path() . $file . $query_string);
+            }
+          }
+        }
+      }
+    }
+
+    if ($is_writable && $preprocess_css) {
+      // Prefix filename to prevent blocking by firewalls which reject files
+      // starting with "ad*".
+      $filename = 'css_'. md5(serialize($types) . $query_string) .'.css';
+      $preprocess_file = drupal_build_css_cache($types, $filename);
+      $output[] = array($media, base_path() . $preprocess_file);
+    }
+  }
+
+  $files = array_merge($no_module_preprocess, $output, $no_theme_preprocess);
+
+  $styles = '';
+  if (count($files) < 22) {
+    // traditional method.
+    foreach ($files as $css_file) {
+      list ($media, $href) = $css_file;
+      $styles .= '<link type="text/css" rel="stylesheet" media="'. $media .'" href="'. $href .'" />'."\n";
+    }
+  }
+  else {
+    // import method
+    $counter = 0;
+    $media = NULL;
+    $import = '';
+    foreach ($files as $css_file) {
+      list ($media_new, $href) = $css_file;
+      if ($media_new != $media || $counter > 25) {
+        if ($media && !empty($import)) {
+          $styles .= "\n".'<style type="text/css" media="'. $media .'">'."\n". $import .'</style>';
+          $import = '';
+        }
+        $counter = 0;
+        $media = $media_new;
+      }
+      $import .= '@import "'. $href .'";'."\n";
+      ++$counter;
+    }
+    if ($media && !empty($import)) {
+      $styles .= "\n".'<style type="text/css" media="'. $media .'">'."\n". $import .'</style>';
+    }
+  }
+  if (!empty($vars['conditional_styles'])) {
+    $styles .= "\n". $vars['conditional_styles'];
+  }
+  if ($styles) {
+    $vars['styles'] = $styles;
+  }
+}

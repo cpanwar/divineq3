@@ -1,0 +1,690 @@
+<?php
+// $Id: upload_element.module,v 1.1.2.5 2009/03/25 14:04:23 aland Exp $
+
+/**
+ * @file
+ * A module that provides two new elements to the FAPI for file handling.
+ *
+ * This module provides two new elements to add a layer of abstraction to the
+ * file handling within the FAPI.
+ *
+ * upload_element - a generic file element
+ * image_upload_element - a generic image element
+ */
+
+define('UPLOAD_ELEMENT_NONE', 0);
+define('UPLOAD_ELEMENT_NEW', 1);
+define('UPLOAD_ELEMENT_DELETE', 2);
+define('UPLOAD_ELEMENT_REPLACE', 3);
+
+/**
+ * Implementation of hook_help().
+ */
+function upload_element_help($path, $arg) {
+  switch ($path) {
+    case 'admin/help#upload_element':
+      $output = '<p>'. t('A module that provides two new FAPI elements to handle file uploads.') .'</p>';
+      return $output;
+  }
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function upload_element_menu() {
+  $items = array();
+  $items['upload_element'] = array(
+    'title' => t('Upload element preview'),
+    'file' => 'upload_element.pages.inc',
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('access content'),
+    'page callback' => 'image_upload_element_thumb',
+    'page arguments' => array(),
+  );
+  $items['upload_element_js/%/%/%'] = array(
+    'title' => t('AHAH Callback'),
+    'file' => 'upload_element.pages.inc',
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('access content'),
+    'page callback' => 'upload_element_js',
+    'page arguments' => array(1, 2, 3),
+  );
+  return $items;
+}
+
+/**
+ * Implementation of hook_theme().
+ */
+function upload_element_theme() {
+  return array(
+    'upload_element' => array(
+      'arguments' => array('element' => NULL),
+    ),
+    'image_upload_element' => array(
+      'arguments' => array('element' => NULL),
+    ),
+    'upload_element_preview' => array(
+      'arguments' => array('element' => NULL),
+    ),
+    'upload_element_image_preview' => array(
+      'arguments' => array('element' => NULL),
+    ),
+    'upload_element_file_description' => array(
+      'arguments' => array('element' => NULL),
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_init().
+ */
+function upload_element_init() {
+  drupal_add_css(drupal_get_path('module', 'upload_element') .'/upload_element.css');
+}
+
+/**
+ * Implementation of hook_elements().
+ *
+ * Defines two file form elements that are linked into the
+ * native Drupal file handling system.
+ *
+ * The elements share four native parameters:
+ * #file_formatter - theming function to preview the element
+ * #file_validators - array of additional validation functions
+ *    to perform on the uploaded file element.
+ *
+ * The image_upload_element integrates into imagecache to enable a preset to
+ * be run against the image when saving this to the new location.
+ */
+function upload_element_elements() {
+  $type['upload_element'] = array(
+    '#input' => TRUE,
+    '#default_value' => '',
+    '#process' => array('_upload_element_expand'),
+    '#element_validate' => array('upload_element_element_validate'),
+    '#file_formatter' => 'upload_element_preview',
+    '#file_validators' => array(),
+    '#file_validator_seperator' => '<br />',
+  );
+
+  $type['image_upload_element'] = array(
+    '#input' => TRUE,
+    '#default_value' => '',
+    '#process' => array('_upload_element_expand'),
+    '#element_validate' => array('upload_element_element_validate'),
+    '#file_formatter' => 'upload_element_preview',
+    '#file_validators' => array(),
+    '#file_validator_seperator' => '<br />',
+    '#image_formatter' => 'upload_element_image_preview',
+    '#image_preview_size' => '100x100',
+  );
+  return $type;
+}
+
+/**
+ * Our #process callback to expand the control.
+ */
+function _upload_element_expand($element, $edit, $form_state, $complete_form) {
+  // We need this to parse the form cache for image preview
+  // and ajax functions.
+  $element['#build_id'] = $complete_form['#build_id'];
+  if (!count($complete_form['#post'])) {
+    $_SESSION['files']['upload_element'][$element['#build_id']][$element['#name'] .'_default'] = array_key_exists('#value', $element) ? $element['#value']: $element['#default_value'];
+  }
+
+  // move things around a bit
+  $children = element_children($element);
+  $element[$element['#name'] .'_custom_elements'] = array();
+  foreach($children as $child) {
+    $element[$element['#name'] .'_custom_elements'][$child] = $element[$child];
+    unset($element[$child]);
+  }
+
+  $element[$element['#name'] .'_upload_element_file'] = array(
+    '#type' => 'file',
+    '#size' => $element['#size'] ? $element['#size'] : 40,
+    '#name' => 'files['. $element['#name'] .']',
+    '#id' => form_clean_id("edit-file-{$element['#name']}"),
+    '#description' => theme('upload_element_file_description', $element),
+  );
+  $element[$element['#name'] .'_upload_element_ahah'] = array(
+    '#type' => 'submit',
+    '#value' => t('Update'),
+    '#name' => $element['#name'] .'-upload-element',
+    '#prefix' => '<div class="form-item">',
+    '#suffix' => '</div>',
+    '#ahah' => array(
+      'path' => 'upload_element_js/'. $element['#build_id'] .'/'. $complete_form['form_id']['#value'] .'/'. $element['#name'],
+      'wrapper' => $element['#id'] .'-ahah-wrapper',
+      'method' => 'replace',
+      'progress' => array('type' => 'bar', 'message' => t('Please wait...')),
+      'effect' => 'none',
+    ),
+  );
+  return $element;
+}
+
+
+/**
+ * This is the core function that handles the uploading and workflow
+ * of the submitted files.
+ *
+ * @param array $form The form element whose value is being populated.
+ * @param mixed $edit The incoming POST data to populate the form element.
+ * If this is FALSE, the element's default value should be returned.
+ *
+ * @return mixed The file object or empty string.
+ */
+function form_type_image_upload_element_value($form, $edit = FALSE) {
+  return form_type_upload_element_value($form, $edit);
+}
+
+/**
+ * This is the core function that handles the uploading and workflow
+ * of the submitted files.
+ *
+ * @param array $form The form element whose value is being populated.
+ * @param mixed $edit The incoming POST data to populate the form element.
+ * If this is FALSE, the element's default value should be returned.
+ *
+ * @return mixed The file object or empty string.
+ */
+function form_type_upload_element_value($form, $edit = FALSE) {
+  if ($edit !== FALSE) {
+    $name = $form['#name'];
+    $action = $form['#post'][$name][$name .'_action'];
+    if (is_object($form['#default_value'])) {
+      if ($action == 'delete') {
+        upload_element_session_handler('delete', $form);
+      }
+      if ($action == 'restore') {
+        upload_element_session_handler('restore', $form);
+      }
+    }
+    if ($action == 'revert') {
+      upload_element_session_handler('revert', $form);
+    }
+    // add image validator, default max size validators have no meaning here
+    // as the form submission will have already failed.
+    if ($form['#type'] == 'image_upload_element') {
+      $form['#file_validators']['file_validate_is_image'] = array();
+    }
+    $file = file_save_upload($name, $form['#file_validators']);
+    if (!$file && isset($_FILES['files']) && $_FILES['files']['name'][$name]) {
+      switch ($_FILES['files']['error'][$name]) {
+        case UPLOAD_ERR_INI_SIZE:
+        case UPLOAD_ERR_FORM_SIZE:
+          drupal_set_message(t('The file %file could not be saved, because it exceeds %maxsize, the maximum allowed size for uploads.', array('%file' => $source, '%maxsize' => format_size(file_upload_max_size()))), 'error');
+      }
+    }
+    $value = !empty($file)
+        ? upload_element_session_handler('store', $form, $file)
+        : upload_element_session_handler('value', $form);
+    return $value;
+  }
+  else {
+    return $form['#default_value'];
+  }
+}
+
+/**
+ * A private helper function to parse the real value from
+ * the element. This takes into account the submit_action
+ * when present.
+ *
+ * @param array $element Upload element
+ * @return mixed File object or FALSE.
+ */
+function _upload_element_parse_value($element) {
+  if (is_object($element['#value'])) {
+    if (isset($element['#value']->submit_action)) {
+      return ($element['#value']->submit_action == UPLOAD_ELEMENT_DELETE)
+        ? FALSE : $element['#value'];
+    }
+    else {
+      return $element['#value'];
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * The custom validation required for files that are marked
+ * as deleted, but are required.
+ *
+ * @param array $element
+ * @param array $form_state
+ */
+function upload_element_element_validate($element, &$form_state) {
+  if ($element['#required'] && !_upload_element_parse_value($element)) {
+    form_error($element, t('!name field is required.', array('!name' => $element['#title'])));
+  }
+}
+
+/**
+ * Simple helper function to compare to file elements
+ *
+ * @param mixed $a file object to compare
+ * @param mixed $b file object to compare
+ * @return bool
+ */
+function upload_element_equals($a = FALSE, $b = FALSE) {
+  if (is_object($a) && is_object($b)) {
+    return $a->fid == $b->fid;
+  }
+  return FALSE;
+}
+
+/**
+ * Theme function to format the edit form.
+ */
+function theme_image_upload_element($element) {
+  return theme('upload_element', $element);
+}
+
+/**
+ * Theme function to format the edit form.
+ */
+function theme_upload_element($element) {
+  _form_set_class($element, array('form-file'));
+  $preview = '';
+  if ($element['#image_formatter']) {
+    $preview = theme($element['#image_formatter'], $element);
+    // We need to calculate the required margin for the details section.
+    $width = 100;
+    if ($element['#image_preview_size'] && preg_match('/^\d+x\d+$/', $element['#image_preview_size'])) {
+      list($width,) = explode('x', $element['#image_preview_size'], 2);
+    }
+    $details_styles = ' style="margin-left:'. ($width + 10) . 'px;"';
+  }
+  $file_details = '';
+  if ($element['#file_formatter']) {
+    $file_details = theme($element['#file_formatter'], $element);
+  }
+
+  $messages = '';
+  if (!empty($element['#messages'])) {
+    $messages = ' <div class="ahah-messages">'. $element['#messages'] ."</div>\n";
+  }
+  $action_field = _upload_element_action_field($element);
+  $description = $element['#description'] ? '<div class="description">'. $element['#description'] .'</div>' : '';
+  $value = <<<END
+    {$preview}
+    <div class="upload-element-detail" {$details_styles}>
+      {$messages}
+      {$file_details}
+      {$action_field}
+      {$element['#children']}
+      <br class="upload-element-clear" />
+      {$description}
+    </div>
+    <br class="upload-element-clear" />
+END;
+    $ahah_wrapper_id = $element['#id'] .'-ahah-wrapper';
+    unset($element['#id']);
+    unset($element['#description']);
+    return isset($element['#is_ahah']) ? $value : theme('form_element', $element, "<div id=\"{$ahah_wrapper_id}\" class=\"upload-element-row\">". $value .'</div>');
+}
+
+/**
+ * Private function to generate the options that go with the
+ * upload element
+ *
+ * @param array $element Parent upload element
+ * @return array $children Child elements
+ */
+function _upload_element_action_field($element) {
+  $children = array();
+  if (is_object($element['#value'])) {
+    $name = $element['#name'];
+    $key = $name .'_action';
+    $children[$key]= array(
+      '#type' => 'checkbox',
+      '#id' => form_clean_id("edit-{$key}"),
+      '#name' => "{$name}[{$key}]",
+      '#value' => 0,
+      '#weight' => -10,
+    );
+    // TODO: While this is working, there may be two logical bugs
+    // the negate each other.
+    if (upload_element_equals($element['#value'], $element['#default_value'])) {
+      if (isset($element['#value']->submit_action) && $element['#value']->submit_action == UPLOAD_ELEMENT_DELETE) {
+        $children[$key]['#return_value'] = 'restore';
+        $children[$key]['#title'] = t('Restore original');
+      }
+      else {
+        $children[$key]['#return_value'] = 'delete';
+        $children[$key]['#title'] = t('Delete original');
+        $children[$key]['#value'] = (isset($element['#value']->submit_action)
+              ? ($element['#value']->submit_action == UPLOAD_ELEMENT_DELETE ? 'delete' : 0)
+              : 0);
+      }
+    }
+    else {
+      $children[$key]['#return_value'] = 'revert';
+      $children[$key]['#title'] = (is_object($element['#default_value']) ? t('Discard replacment') : t('Discard upload'));
+    }
+  }
+  return drupal_render($children);
+}
+
+/**
+ * Simple theming function to display the uploaded file.
+ *
+ * @param object $file File object
+ * @return string HTML of the filename and size.
+ */
+function theme_upload_element_preview($element = NULL) {
+  $label = t('Filename');
+  $filename = '--';
+  $filesize = '';
+  $class = 'upload-element-preview';
+  if ($file = _upload_element_parse_value($element)) {
+    $filename = check_plain($file->filename);
+    $filesize = '('. format_size($file->filesize) .')';
+    // Add some nice mime type classes
+    if ($file->filemime) {
+      list($base_mime, $extended_mime) = explode('/', $file->filemime);
+      $class = trim($class .' mime-'. $base_mime .' '. ($extended_mime ? ' mime-'. $base_mime .'-'. $extended_mime : ''));
+    }
+  }
+  return <<<END
+      <div class="upload-element-file-description">
+        <strong>{$label}: </strong>
+        <span class="{$class}">{$filename} {$filesize}</span>
+      </div>
+
+END;
+}
+
+/**
+ * This creates the thumbnail preview HTML.
+ *
+ * @param array $element
+ * @return string HTML for image thumbnail.
+ */
+function theme_upload_element_image_preview($element = NULL) {
+  $fid = 'no_image';
+  if ($file = _upload_element_parse_value($element)) {
+    $fid = $file->fid;
+  }
+  $src = url('upload_element/'. $element['#build_id'] .'/'. $element['#name'] .'/'. $fid);
+  return '<div class="upload-element-preview"><img src="'. $src .'" alt="'. t('Image preview') .'" /></div>';
+}
+
+/**
+ * Saves an uploaded file
+ *
+ * @param object $file File object
+ * @param string $dest destination directory to move the file to
+ * @param int $replace files move action
+ * @param string $presetname Imagecache preset to perfrom on the uploaded image.
+ * @param bool $delete_original A flag to tell the function how to handle
+ *   the existing file when it is deleted or replaced. This is used to
+ *   prevent the status flag being set to temperory when the file is still used
+ *   by the system somewhere else. For example, if you are saving a new
+ *   node revision, with a new file, you would want to ensure that this is
+ *   set to FALSE if the old image is still valid for some other revision.
+ * @return int The {files}.fid or 0
+ */
+function upload_element_save(&$file, $dest = 0, $replace = FILE_EXISTS_RENAME, $presetname = FALSE, $delete_original = TRUE) {
+  $fid = 0;
+  if (is_object($file)) {
+    $base = file_directory_path();
+    if (strstr($dest, $base) === FALSE) {
+      $dest = $base .'/'. ltrim($dest, '/');
+    }
+
+    file_check_directory($dest, 1);
+    if (!isset($file->submit_action)) {
+      $file->submit_action = UPLOAD_ELEMENT_NONE;
+    }
+    switch ($file->submit_action) {
+      case UPLOAD_ELEMENT_NONE:
+        $fid = $file->fid;
+        break;
+      case UPLOAD_ELEMENT_DELETE:
+        if ($delete_original) {
+          _upload_element_delete($file->fid);
+        }
+        break;
+      case UPLOAD_ELEMENT_REPLACE:
+        if ($delete_original) {
+          _upload_element_delete($file->original_fid);
+        }
+        // fall through
+      case UPLOAD_ELEMENT_NEW:
+        $uploaded = FALSE;
+        if ($presetname) {
+          $destination = file_create_filename($file->filename, $dest);
+          if (upload_element_imagecache_action($presetname, $file->filepath, $destination)) {
+            $file->filepath = $destination;
+            $uploaded = TRUE;
+          }
+        }
+        if (!$uploaded) {
+          $uploaded = file_move($file, $dest .'/'. $file->filename, $replace);
+        }
+        if ($uploaded) {
+          $file->status = FILE_STATUS_PERMANENT;
+          // Clear PHP stat cache in case filesize has changed.
+          clearstatcache();
+          if ($file_size = @filesize($file->filepath)) {
+            $file->filesize = $file_size;
+          }
+          drupal_write_record('files', $file, 'fid');
+          $fid = $file->fid;
+          // Imagecache may need flushing if using the same filepath.
+          if (function_exists('imagecache_image_flush')) {
+            imagecache_image_flush($file->filepath);
+          }
+        }
+        else {
+          drupal_set_message(t('Error occured while saving the image!'), 'error');
+        }
+        break;
+    }
+  }
+  // This cleans up the session by flushing old values.
+  upload_element_clean_session();
+
+  return $fid;
+}
+
+/**
+ * Hooks into imageache preset for save action
+ *
+ * @param string $presetname Imagecache preset to perfrom on the uploaded image.
+ * @param string $path Path to the temp original image file.
+ * @param string $dest Path to save the new image to.
+ *
+ * @return bool FALSE if there was a problem saving the image, TRUE otherwise.
+ */
+function upload_element_imagecache_action($presetname, $path, $dst) {
+  if (!function_exists('imagecache_preset_by_name')) {
+    return FALSE;
+  }
+
+  if (!$preset = imagecache_preset_by_name($presetname)) {
+    return FALSE;
+  }
+  if (is_file($dst)) {
+    return TRUE;
+  }
+  $src = $path;
+  if (!is_file($src) && !is_file($src = file_create_path($src))) {
+    return FALSE;
+  };
+  if (!getimagesize($src)) {
+    return FALSE;
+  }
+  $lockfile = file_directory_temp() .'/'. $preset['presetname'] . basename($src);
+  if (file_exists($lockfile)) {
+    watchdog('imagecache', 'Imagecache already generating: %dst, Lock file: %tmp.', array('%dst' => $dst, '%tmp' => $lockfile), WATCHDOG_NOTICE);
+    return FALSE;
+  }
+  touch($lockfile);
+  register_shutdown_function('file_delete', realpath($lockfile));
+  if (file_exists($dst) || imagecache_build_derivative($preset['actions'], $src, $dst)) {
+    return TRUE;
+  }
+  // Generate an error if image could not generate.
+  watchdog('imagecache', 'Failed generating an image from %image using imagecache preset %preset.', array('%image' => $path, '%preset' => $preset['presetname']), WATCHDOG_ERROR);
+  return FALSE;
+}
+
+/**
+ * The core storage handler for keeping the correct state
+ * of the element in between form submissions/AHAH requests.
+ *
+ * @param string $op Operation key.
+ * @param array $form The upload_element element.
+ * @param mixed $file File object or empty string
+ * @return mixed File object or NULL depending on the $op.
+ */
+function upload_element_session_handler($op, &$form, $file = '') {
+  $name = $form['#name'];
+  $form_build_id = $form['#post']['form_build_id'];
+  $session_files = &$_SESSION['files']['upload_element'][$form_build_id];
+  switch ($op) {
+    case 'revert':
+      unset($session_files[$name]);
+      if (is_object($session_files[$name .'_default'])) {
+        $session_files[$name .'_default']->submit_action = UPLOAD_ELEMENT_NONE;
+      }
+      break;
+    case 'value':
+      $file = (isset($session_files[$name])) ? $session_files[$name] : $session_files[$name .'_default'];
+      return is_object($file) ? $file : '';
+    case 'restore':
+    // delete op only applies to default file that is stored in the session
+    case 'delete':
+      $submit_action = ($op == 'restore') ? UPLOAD_ELEMENT_NONE : UPLOAD_ELEMENT_DELETE;
+      $session_files[$name .'_default']->submit_action = $submit_action;
+      unset($session_files[$name]);
+      if (is_object($form['#default_value'])) {
+        $form['#default_value']->submit_action = $submit_action;
+      }
+      break;
+    case 'store':
+      if (is_object(($session_files[$name .'_default']))) {
+        $file->submit_action = UPLOAD_ELEMENT_REPLACE;
+        $file->original_fid = $session_files[$name .'_default']->fid;
+      }
+      else {
+        $file->submit_action = UPLOAD_ELEMENT_NEW;
+      }
+      $session_files[$name] = $file;
+      return $file;
+  }
+}
+
+/**
+ * Session cleaning function.
+ *
+ * This is used to prevent excess values getting stored
+ * within the $_SESSION over multiple requests. It uses
+ * the form cache to determine if the value should be
+ * deleted or not.
+ */
+function upload_element_clean_session() {
+  $form_state = array('submitted' => FALSE);
+  foreach($_SESSION['files']['upload_element'] as $form_build_id => $values) {
+    if (!$form = form_get_cache($form_build_id, $form_state)) {
+      unset($_SESSION['files']['upload_element'][$form_build_id]);
+    }
+  }
+}
+
+/**
+ * This theming function can be used to assign different text to
+ * the description that is found under the file HTML element.
+ *
+ * @param array $element FAPI upload element
+ */
+function theme_upload_element_file_description($element) {
+  // set file validation defaults for the theming functions
+  _upload_element_add_file_validators($element);
+
+  $validation_messages = array();
+  if (isset($element['#file_validators']['file_validate_extensions'])) {
+    $ext = _upload_element_allowed_extensions($element);
+    $validation_messages[] = t('Only files with the following extensions are allowed: %ext.', array('%ext' => implode(', ', $ext)));
+  }
+  elseif (isset($element['#file_validators']['file_validate_is_image'])) {
+    $validation_messages[] = t('Only JPEG, PNG and GIF images are allowed.');
+  }
+  if (isset($element['#file_validators']['file_validate_size'])) {
+    $validation_messages[] = t('The maximum upload size is %filesize.', array('%filesize' => format_size($element['#file_validators']['file_validate_size'][0])));
+  }
+  $validation_messages[] = t('Changes made are not permanent until you save this form.');
+  $validator_seperator = isset($element['#file_validator_seperator']) ? $element['#file_validator_seperator'] : '<br />';
+  return implode($validator_seperator, $validation_messages);
+}
+
+/**
+ * Private helper function to help pull out the allowed
+ * extensions.
+ *
+ * @param array $element
+ */
+function _upload_element_allowed_extensions($element) {
+  if ($element['#type'] == 'upload_element') {
+    return array_filter(explode(' ', strtoupper($element['#file_validators']['file_validate_extensions'][0])));
+  }
+  elseif (isset($element['#file_validators']['file_validate_extensions'])) {
+    return array_intersect(explode(' ', strtoupper($element['#file_validators']['file_validate_extensions'][0])), array('JPEG', 'GIF', 'PNG'));
+  }
+  else {
+    return array('JPEG', 'GIF', 'PNG');
+  }
+}
+
+/**
+ * This is used to set the default validators
+ *
+ * We are in a catch-22 here. If we set it in hook_elements,
+ * the chances are that these will be overridden by any user
+ * defined values. If we set these in the #process callback,
+ * the options are not available to form_type_"hook"_value
+ * or theme functions.
+ *
+ * As such, we dynamically add these here.
+ */
+function _upload_element_add_file_validators(&$element) {
+  // Add the default validators.
+  if ($element['#type'] == 'image_upload_element') {
+    $element['#file_validators']['file_validate_is_image'] = array();
+  }
+  // Check user defined max size is not greater than form/post size.
+  $max = file_upload_max_size();
+  if (isset($element['#file_validators']['file_validate_size'])) {
+    if ($element['#file_validators']['file_validate_size'][0] > $max) {
+      $element['#file_validators']['file_validate_size'] = array($max);
+    }
+  }
+  else {
+    $element['#file_validators']['file_validate_size'] = array($max);
+  }
+}
+
+/**
+ * Private helper function for to delete files during the save process
+ *
+ * @param $fid The fid of a file object to delete.
+ */
+function _upload_element_delete($fid) {
+  $result = db_query('SELECT * FROM {files} WHERE fid = %d', $fid);
+  if ($file = db_fetch_object($result)) {
+    if (file_exists($file->filepath)) {
+      // If files that exist cannot be deleted, log it for manual deletion.
+      if (!file_delete($file->filepath)) {
+        watchdog('upload_element', 'Could not delete file "%path".', array('%path' => $file->filepath), 'error');
+      }
+    }
+    else {
+      watchdog('upload_element', 'Attempting to delete missing file "%path".', array('%path' => $file->filepath), 'error');
+    }
+  }
+  db_query('DELETE FROM {files} WHERE fid = %d', $fid);
+}

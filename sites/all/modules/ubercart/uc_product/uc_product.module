@@ -734,7 +734,7 @@ function uc_product_view($node, $teaser = 0, $page = 0) {
   $context['field'] = 'sell_price';
   $node->content['display_price'] = array('#value' => theme('uc_product_price', $node->sell_price, $context),
     '#access' => $enabled['display_price'],
-    '#weight' => $weight['display_price'],
+    '#weight' => 10, //$weight['display_price'],
   );
 
   if (!$teaser) {
@@ -1471,13 +1471,33 @@ function uc_product_add_to_cart_form($form_state, $node) {
   $form['#submit'][] = 'uc_product_add_to_cart_form_submit';
   $form['nid'] = array('#type' => 'value', '#value' => $node->nid);
 
+  drupal_add_js('new.js');
   if ($node->default_qty > 0 && variable_get('uc_product_add_to_cart_qty', FALSE)) {
     $form['qty'] = array('#type' => 'textfield',
-      '#title' => t('Quantity'),
+      '#title' => t('QTY'),
       '#default_value' => $node->default_qty,
       '#size' => 5,
       '#maxlength' => 6,
     );
+    
+    
+    $form['qtyinc'] = array('#type' => 'button',
+      '#id' => 'inc',
+      //'#title' => t('+'),
+      '#value' => t('+'),
+      '#prefix' => '<div class="qty">',
+      //'#suffix' => '</div>',
+    );
+    
+    $form['qtydec'] = array('#type' => 'button',
+      '#id' => 'dec',
+      //'#title' => t('-'),
+      '#value' => t('-'),
+      //'#prefix' => '<div class="qtydown">',
+      '#suffix' => '</div>',
+      );
+    
+    
   }
   else {
     $form['qty'] = array('#type' => 'hidden', '#value' => 1);
@@ -1490,6 +1510,8 @@ function uc_product_add_to_cart_form($form_state, $node) {
     '#attributes' => array(
       'class' => 'node-add-to-cart',
     ),
+    '#prefix' => '<div class="addto">',
+    '#suffix' => '</div>',
   );
 
   $form['node'] = array(

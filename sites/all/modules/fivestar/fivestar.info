@@ -1,0 +1,11 @@
+name = Fivestar
+description = A simple five-star voting widget for nodes.
+package = Voting
+core = 6.x
+dependencies[] = votingapi
+; Information added by drupal.org packaging script on 2011-02-25
+version = "6.x-2.x-dev"
+core = "6.x"
+project = "fivestar"
+datestamp = "1298619269"
+

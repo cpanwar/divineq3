@@ -1,0 +1,64 @@
+<?php
+// ; $Id: custom_blocks.info,v 1.6 20011/04/27 Elan $
+
+  /**
+  * Implementation of hook_block().
+  */
+  function custom_blocks_block($op = 'list', $delta = 0, $edit = array()) {
+          global $user;
+          switch ($op) {
+                  case 'list':
+                          $blocks[0] = array('info' => t('Custom Block - Product Description'),);
+                          $blocks[1] = array('info' => t('Custom Block - Other Plans'),);
+                          return $blocks;
+                  case 'view': default:
+                          switch ($delta) {
+                                  case 0:
+                                          $block['subject'] = t('Product Description Block');
+                                          $block['content'] = getproductdescription();
+                                          break;
+                                        
+                                  case 1:
+                                          $block['subject'] = t('Product Other Plans');
+                                          $block['content'] = getotherplans();
+                                          break;
+                          }
+                          return $block;
+          }
+  }
+  
+  function getproductdescription() {
+    if (arg(0) == 'node') {
+      $node = node_load(arg(1));
+      if ($node->type == 'product') {
+         //return $node->body;
+        return $node->field_short_description['0']['value'];
+       //  return $node->field_other_plans->value;
+       // return $node->field_short_description->value;
+         
+      }
+     // print_r($node);exit;
+    }
+  }
+  
+  function getotherplans() {
+    if (arg(0) == 'node') {
+      $node = node_load(arg(1));
+      if ($node->type == 'product') {
+        return $node->field_other_plans['0']['value'];
+      }
+    }
+  }
+  
+  function custom_blocks_form_alter(&$form, &$form_state, $form_id) {
+    if($form_id == 'class_shedule_node_form'){
+      /*$form['helptext'] = array (
+        '#title' => 'test',
+        '#value' => t('Choose from a variety of class types and experience levels and we\'ll create a unique class experience to meet your individual needs.'),
+      );*/
+       $form['#prefix'] = 'Choose from a variety of class types and experience levels and we\'ll create a unique class experience to meet your individual needs.';
+       
+       $form['buttons']['submit']['#value'] = t('Sign Up Now!');
+      
+    }
+  }

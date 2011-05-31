@@ -1,0 +1,1994 @@
+<?php
+
+/*Add JS and CSS Files*/ 
+ $module_path=drupal_get_path('module', 'divine_guru_booking');
+ /*Add css and js files for popup functionality*/
+ drupal_add_css($module_path.'/css/popup.css','module');
+ drupal_add_js($module_path.'/js/popup.js','module');
+ drupal_add_js($module_path.'/js/booking.js','module');
+
+
+/**
+ * Implementation of hook_perm().
+ */
+function divine_guru_booking_perm() {
+  return array('select userpackages','manage booking');
+}
+
+/**
+ * Implementation of hook_access().
+ */
+function divine_guru_booking_access($op, $account) {
+  if ($op == 'create') {
+    return user_access('select userpackages');
+  }
+  elseif ($op == 'update') {
+    if (user_access('select userpackages')) {
+      return TRUE;
+    }
+    else {
+      return NULL;
+    }
+  } 
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function divine_guru_booking_menu() {
+
+  $items = array();
+
+	$items['guru-booking/package'] = array(
+	'title' => 'Schedule Class',
+	'description' => 'Select a package',
+	'page callback' => 'fetch_search_criteria',
+	'access arguments' => array('manage booking'),
+	);
+
+	$items['guru-booking/fetch-guru-list'] = array(
+	'page callback' => 'fetch_guru_list',
+	'access arguments' => array('manage booking'),
+	);
+
+	$items['guru-booking/show-scheduled-classes'] = array(
+	'page callback' => 'show_scheduled_classes',
+	'access arguments' => array('manage booking'),
+	);
+
+	$items['guru-booking/fetch-guru-details'] = array(
+	'page callback' => 'fetch_guru_details',
+	'access arguments' => array('manage booking'),
+	);
+
+	$items['guru-booking/check-guru-availability'] = array(
+	'page callback' => 'check_guru_availability',
+	'access arguments' => array('manage booking'),
+	);
+
+	$items['guru-booking/confirm-classes'] = array(
+	'page callback' => 'save_booking',
+	'access arguments' => array('manage booking'),
+	);
+
+	$items['guru-booking/delete-schedule-class'] = array(
+	'page callback' => 'delete_booking',
+	'access arguments' => array('manage booking'),
+	);
+
+	$items['guru-booking/fetch-guru-timeslots'] = array(
+	'page callback' => 'fetch_guru_timeslots',
+	'access arguments' => array('manage booking'),
+	);
+
+	$items['guru-booking/fetch-guru-available-timeslots'] = array(
+	'page callback' => 'fetch_guru_available_timeslots',
+	'access arguments' => array('manage booking'),
+	);
+
+	$items['guru-booking/fetch-guru-profile'] = array(
+	'page callback' => 'fetch_guru_profile',
+	'access arguments' => array('manage booking'),
+	);
+  
+  return $items;
+}
+
+
+/**
+ * This function is used for checking whether this user bought any packages or not
+ */
+function check_user_packages(){
+  global $user;
+  $uid=$user->uid;
+
+  $cnt=0;
+  $query="select count(*) as cnt
+          from {node} n, {uc_order_products} uop, {uc_orders} uo
+	  where n.nid=uop.nid and uop.order_id = uo.order_id  and uo.uid=%d
+	  and uo.order_status  in ('in_checkout','completed','payment_received')";
+  $db_result = db_query($query,$uid);
+  while ($row = db_fetch_object($db_result)) {
+     $cnt=$row->cnt;
+  }
+
+  if($cnt){
+   return true;
+  }
+  else{
+   return false;
+  }
+
+}
+
+/**
+ * This function is used for checking whether any classes left in this package or not and validtity left
+ */
+function check_package_class_limit($packageid,$validationDate){
+
+ global $user;
+ $uid = $user->uid;
+
+ if(trim($_GET['bid'])!=''){ //if it is edit operation
+   return 1;
+ }
+
+ /*CHECK FOR VALIDITY AND LIVE SESSIONS OF USER SELECTED PACKAGES*/
+ 
+ $packageArray = node_load($packageid);
+ $packageValidity = intval($packageArray->field_validity[0]['value']);
+ $packageClasses = intval($packageArray->field_live_sessions[0]['value']);
+ $packageStatus = $packageArray->status;
+
+ if($packageStatus==0 or $packageStatus==''){
+   return -1;
+ }
+
+ if($packageValidity==0 or $packageClasses==0){
+   return 0;
+ }
+
+ $query = "select * from {divine_user_package_status} where packageid=%d and uid=%d";
+ $db_result=db_query($query,$packageid,$uid);
+ $classes_left = $packageClasses ; $expiry_timestamp = 0;
+ while ($row = db_fetch_object($db_result)) {
+     $classes_left = $row->classes_left;
+     $expiry_timestamp = $row->expiry_timestamp;
+ }
+
+
+ if( $classes_left == 0 ){
+   return 2;
+ }
+
+ $timestamp = strtotime("+".$packageValidity." days",strtotime($validationDate));
+ if($timestamp < $expiry_timestamp){
+   return 3;
+ }
+ 
+  return 1;
+}
+
+
+/**
+ * This function is used for fetching information regarding package's validity and how much
+ * classes left
+ */
+function getPackageUsedDetails($packageid,$currentDate){
+  global $user;
+ $uid = $user->uid;
+
+ /*CHECK FOR VALIDITY AND LIVE SESSIONS OF USER SELECTED PACKAGES*/
+ 
+ $packageArray = node_load($packageid);
+ $packageValidity = intval($packageArray->field_validity[0]['value']);
+ $packageClasses = intval($packageArray->field_live_sessions[0]['value']);
+
+ 
+ $query = "select * from {divine_user_package_status} where packageid=%d and uid=%d";
+ $db_result=db_query($query,$packageid,$uid);
+ $classes_left = $packageClasses ; $expiry_timestamp = 0;
+ while ($row = db_fetch_object($db_result)) {
+     $classes_left = $row->classes_left;
+     $expiry_timestamp = $row->expiry_timestamp;
+ }
+
+ //check for trial classes
+ $query = "select count(*) as cnt from {divine_guru_booking} where uid=%d and isTrial=1";
+ $db_result=db_query($query,$packageid,$uid);
+ $isTrial = 0;
+ while ($row = db_fetch_object($db_result)) {
+     $isTrial = $row->cnt;
+ }
+
+ $daysLeft = (strtotime("+".$packageValidity." days",$validationDate)-strtotime($validationDate))/(24*60*60);
+ $returnString = '<b>Validity : '.$packageValidity.' days , Remaining : '.$daysLeft.' days';
+ //$returnString .= '<br/>';
+ $returnString .= '&nbsp;&nbsp;Live sessions : '.$packageClasses.' , Remaining : '.$classes_left.'</b>';
+ if($isTrial==0){
+   $classes_left = $classes_left + 1;
+ }
+ $returnString .= '<input type="hidden" name="classes_left" id="classes_left" value="'.$classes_left.'" />';
+ return $returnString;
+}
+
+/**
+ * This function is used for fetching user's packages
+ */
+function get_user_packages($mode=1,$packageId=''){
+
+global $user;
+$uid=$user->uid;
+
+$query="select distinct n.nid,n.title
+          from {node} n, {uc_order_products} uop, {uc_orders} uo
+	  where n.nid=uop.nid and uop.order_id = uo.order_id  and uo.uid=%d
+	  and uo.order_status  in ('in_checkout','completed','payment_received')";
+
+ $db_result = db_query($query,$uid);
+
+ if($mode==1){
+  return $db_result;
+ }
+ else{
+   $package_string='<option value="0" selected>Select a package</option>';
+   while ($row = db_fetch_object($db_result)) {
+     $selected="";
+     if( $packageId == $row->nid ){
+       $selected = "selected";
+     }
+     $package_string .='<option value="'.$row->nid.'" '.$selected.'>'.$row->title.'</option>';
+   }
+   return $package_string;
+ }
+}
+
+/**
+ * This function is used for fetching time zones
+ */
+function get_time_zones($mode=1,$tid=''){
+  $query="select tid,name,offsettime,if(offsetsign=1,'+','-') as offsetsign from {divine_timezone} order by name asc" ; 
+  $db_result=db_query($query);
+  if($mode==1){
+   return $db_result;
+  }
+  else{
+   //$timezone_string = '<option value="0">Select a timezone</option>';
+   while ($row = db_fetch_object($db_result)) {
+     $selected="";
+     $row->name = $row->name.' (UTC '.$row->offsetsign.' '.$row->offsettime.')';
+     if($tid==$row->tid){
+       $selected="selected";
+     }
+     $timezone_string .= '<option value="'.$row->tid.'" '.$selected.'>'.$row->name.'</option>';
+   }
+   return $timezone_string;
+  }
+}
+
+/**
+ * This function is used for fetching user's packages
+ */
+function get_time_slots($mode=1){
+
+ $query="select sid,name from {divine_time_slot}" ; 
+ $db_result=db_query($query);
+ if($mode==1){
+  return $db_result;
+ }
+ else{
+   $time_string='<option value="" selected>Select a time</option>';
+   while ($row = db_fetch_object($db_result)) {
+     $time_string .='<option value="'.$row->sid.'">'.$row->name.'</option>';
+   }
+   return $time_string;
+ }
+}
+
+/**
+ * This function is used for displaying the calendar UI
+ */
+function fetch_search_criteria() {
+  global $user,$base_url;
+  $uid=$user->uid;
+  
+  //for edit operation
+  $bid = trim($_GET['bid']);
+  $calledFrom = trim($_GET['mode']);
+  //$bid=1;
+  if($bid!=''){
+   if(!check_user_booking_authenticity($bid)){
+     return 'Invalid input specified';
+   }
+ }
+  
+  $editMode = 0;
+  if($bid!=''){
+   //fetch information regarding this booking
+   $query="select d.aid,d.packageid,d.tid,d.class_date,d.class_time,d.class_start_timestamp,
+           a.uid as gid
+           from {divine_guru_booking} d,{divine_guru_availability} a
+	   where d.aid=a.aid and d.uid=%d and d.bid=%d";
+   $db_result=db_query($query,$uid,$bid);
+   $epackageid='';$etid='';$eclass_date='';$eclass_time='';$eaid='';
+   while ($row = db_fetch_object($db_result)) {
+     $epackageid=$row->packageid;
+     $etid=$row->tid;
+     $eclass_date=$row->class_date;
+     //$eclass_time=$row->class_time;
+     $eclass_time=$row->class_start_timestamp;
+     $eaid=$row->aid;
+     $egid=$row->gid;
+     $eclass_dateArray=explode('-',$eclass_date);
+     $eclass_date=$eclass_dateArray[1].'/'.$eclass_dateArray[2].'/'.$eclass_dateArray[0];
+   }
+   $editMode = 1;
+  }
+
+  $module_path=drupal_get_path('module', 'divine_guru_booking');
+  
+  //drupal_add_js($module_path.'/js/booking.js','module');
+  
+  drupal_add_css($module_path.'/css/booking.css','module');
+  drupal_add_css($module_path.'/css/jquery-ui-1.css','module');
+
+  jquery_ui_add(array('ui.datepicker'));
+
+  /*Needed for timepicker functionality*/
+  drupal_add_js($module_path.'/js/jquery-1.js','module');
+  drupal_add_js($module_path.'/js/jquery-ui-1.js','module');
+  drupal_add_js($module_path.'/js/jquery-ui-timepicker-addon.js','module');
+  
+  drupal_add_js('$(document).ready(function(){ $( "#class_date" ).datepicker({
+			showOn: "button",
+			buttonImage: "'.$base_url.'/'.$module_path.'/images/calendar.gif",
+			buttonImageOnly: true
+		});
+		
+		//$("#class_time").timepicker({});
+
+		ebid="'.$bid.'";
+		var egid="'.$egid.'";
+		var etid="'.$etid.'";
+		var eclass_date="'.$eclass_date.'";
+		var eclass_time="'.$eclass_time.'";
+		var epackageid="'.$epackageid.'";
+		calledFrom="'.$calledFrom.'";
+		if(ebid!="" && ebid!="0"){
+		 $("#packageid").val(epackageid);
+		 fetchGuruList(2);
+		 selectGuru(egid);
+                 $("#timezone").val(etid);
+		 $("#class_date").val(eclass_date);
+                 //Fetch time slots (available) 
+		 getAvailableTimeSlotsForGuru(1);
+		 $("#class_time").val(eclass_time);
+		 /*
+                 if($("#class_time option").length>1){
+		   $("#class_time").val(eclass_time);
+		 }
+		 else{
+		   var opt = new Option (eclass_time,eclass_time);
+		   document.getElementById("class_time").options.add(opt);
+		   $("#class_time").val(eclass_time);
+		 }
+		 */
+		}
+  });','inline');
+
+  //drupal_add_css("sites/all/modules/jquery_ui/jquery.ui/themes/default/ui.datepicker.css");
+  
+  drupal_add_js('var jsURL="'.$base_url.'/guru-booking/"','inline');
+  drupal_add_js('var userTid="'.$user->tid.'"','inline');
+  
+  if(!check_user_packages()){
+    return 'You have not purchased any packages.Please purchase at least one package to continue.';
+  }
+
+  $package_string = get_user_packages(2);
+  $timezone_string = get_time_zones(2,$user->tid);
+  $time_string = get_time_slots(2);
+  
+  $disabled = "";
+  $searchButton = '<input type="button" value="Search" onclick="fetchGuruList(1);" />';
+  $searchText =  'Select a package :';
+  if($bid!=''){
+    $disabled="disabled";
+    $searchButton='&nbsp;';
+    $searchText = 'Selected package :';
+  }
+  $output ='<form name="booking_form" id="booking_form" onsubmit="return false;">';
+  $output .='<table border="0" cellpadding="0" cellspacing="0" class="booking_tables">';
+  $output .='<tr>
+              <td width="20%">'.$searchText.'</td>
+              <td width="40%">
+	       <select name="packageid" id="packageid" onchange="cleanUpData(1);" style="width:260px;" '.$disabled.' >'.$package_string.'</select>
+	      </td>
+	      <td>
+	        '.$searchButton.'
+	      </td>
+	     </tr>';
+
+  //search dropdowns will be added here : exp. , goal etc
+  /*
+  $output .='<tr id="searchTRId">
+             <td colspan="3" align="left">
+	      <table border="0" cellpadding="0" cellspacing="0">
+	       <tr>
+	        <td width="30%">Choose your experience level:</td>
+		<td>What is your goal for taking this class?<br/> 
+		    (e.g., overall health, weight loss, etc.) 
+                </td>
+		<td>What time do you want to take your class?</td>
+	       </tr>
+	       <tr>
+	        <td><select name="exp_level" id="exp_level" style="width:180px"></select></td>
+		<td><select name="goal" id="goal" style="width:250px"></select></td>
+		<td>
+		 <select name="selected_time" id="selected_time" style="width:150px;">
+		  '.$time_string.'
+		 </select>
+                </td>
+	       </tr>
+	       <tr>
+	        <td>
+		 What time zone are you in?
+		</td>
+		<td >
+		<select name="time_zone" id="time_zone" style="width:250px;">
+		  '.$timezone_string.'
+		 </select>
+		</td>
+		<td><input type="button" value="Search" onclick="fetchGuruList();" /></td>
+	       </tr>
+	      </table>
+	     </td>
+            </tr>';
+  */
+ 
+  
+  $output .='<tr><td colspan="3" align="left">
+              <div id="packageDetailsDiv" style="display:none"></div>
+	     </td>
+	    </tr>';
+
+  $output .='<tr><td colspan="3" align="left">
+              <div id="guruDiv" style="height:300px;display:none;overflow:auto;"></div>
+	     </td>
+	    </tr>';
+  
+  if($bid!=''){
+    $buttonValue='Update class schedule';
+    $buttonClick='confirmClasses(2)';
+  }
+  else{
+    $buttonValue='Add to my schedule';
+    $buttonClick='addToSchedule()';
+  }
+  $output .='<tr id="selectionTrId" style="display:none">
+             <td colspan="3" align="left">
+	      <table border="0" cellpadding="0" cellspacing="0">
+	       <tr>
+	        <td colspan="4"><div id="guruDetailsDiv"></div></td>
+	       </tr>
+	       <tr>
+	        <td align="left">Enter/Confirm Time Zone</td>
+		<td align="left">Select Class Date</td>
+		<td align="left">Start Time</td>
+		<td align="left">&nbsp;</td>
+               </tr>
+	       <tr>
+	        <td width="30%">
+		 <select name="timezone" id="timezone" style="width:200px;" onchange="getAvailableTimeSlotsForGuru('.$editMode.');">
+		 '.$timezone_string.'
+		 </select>
+		</td>
+		<td width="19%"><input type="text" name="class_date" id="class_date" style="width:80px;" readonly="true" onchange="getAvailableTimeSlotsForGuru('.$editMode.');" /></td>
+		<td width="14%">
+		 <select name="class_time" id="class_time" style="width:150px;">
+		  <option value="">Select Time</option>
+		 </select>
+		</td>
+		<td>
+		  <input type="button" name="add_to_my_schedule" value="'.$buttonValue.'" onclick="'.$buttonClick.'" />
+		</td>
+	       </tr>
+	      </table>
+	     </td>
+	    </tr>';
+
+   /*HTML structure for "confirming"*/
+   $output .='<tr id="confirmTRId1" style="display:none">
+                <td colspan="3" align="left" width="100%">
+		 <table id="scheduleTable" border="1" cellpadding="0" cellspacing="0">
+		  <tr><td colspan="4" align="4"><b>Confirm Scheduled Classes</b></td></tr>
+		  <tr>
+		   <td width="10%">Class</td>
+		   <td width="70%">Details</td>
+		   <td width="10%" align="center">Edit</td>
+		   <td width="10%" align="center">Delete</td>
+                  </tr>
+		 </table>
+		</td>
+	     </tr>';
+   $output .='<tr id="confirmTRId2" style="display:none">
+               <td colspan="3" align="right">
+	        <input type="button" value="Confirm Classes" onclick="confirmClasses(1);" />
+	       </td>
+	      </tr>';
+
+
+   $output .='</table>';
+
+   $popupString = '<div id="popupContact">
+		 <a id="popupContactClose" style="cursor:pointer" title="Close" onclick="disablePopup()"><b>x</b></a>
+		 <div id="contactArea" style="height:470px;width:840px;overflow:auto;">			
+		 </div>
+	        </div>
+	       <div id="backgroundPopup"></div>';
+   
+   $blockPageDivString = '<div id="blockPopup" style="display:none;position:fixed;_position:absolute;height:100%;width:100%;top:0;
+                           left:0;background:#000000;border:1px solid #cecece;z-index:1;" align="center">
+                      <div style="border:1px solid black; display:block; padding:5px; background-color:#fbffb3; color:#000; width:200px;"><b>Please Wait......</b></div>
+                   </div>';
+
+   return $output.$popupString.$blockPageDivString;
+}
+
+
+/**
+ * This function is used for fetching guru's list who are available for user selected package
+ */
+function fetch_guru_list(){
+  global $user,$base_url;
+  $module_path=drupal_get_path('module', 'divine_guru_booking');
+
+  $packageid=trim($_POST['packageid']);
+  if($packageid==''){
+    echo 'Please select a package';
+    return;
+  }
+
+  $currentDate=date('Y-m-d');
+  $returnValue = check_package_class_limit($packageid,$currentDate);
+
+  if($returnValue == '-1'){
+    die("This package is disabled.");
+  }
+  if($returnValue == '0'){
+    die("Validity or live session is not defined for this package.\nPlease contact administrator.");
+  }
+  else if($returnValue == '2'){
+    die("You have used all classes for this package.");
+  }
+  else if($returnValue == '3'){
+    die("Validity for this package is expired.");
+  }
+  
+  //Get package's use details
+  $returnString = getPackageUsedDetails($packageid,$currentDate);
+
+  $query = "select u.uid,u.name,u.picture 
+            from {users} u,{divine_guru_package} dgp
+	    where u.uid=dgp.uid and dgp.packageid=%d";
+
+  $db_result=db_query($query,$packageid);
+
+  $flag=0;
+  $table_string  = $returnString.'!#@!$#!';
+  $table_string .= '<table border="0" cellpadding="0" cellspacing="0" width="100%">';
+  $table_string .= '<tr><td colspan="2" align="left"><b>List of available teachers for this package</b></td></tr>';
+  $table_string .= '<tr>';
+  $i=0;
+  $cnt=0;
+  $cnt=0;
+  while ($row = db_fetch_object($db_result)) {
+    $flag=1;
+    if($i % 2==0){
+     $table_string .='</tr><tr>';
+    }
+    $i++;
+    $cnt++;
+    
+    $width='100px';
+    $profile_image_path=$row->picture;
+    if(file_exists($profile_image_path)){
+     $profile_image = '<img src="'.$base_url.'/'.$row->picture.'" />';
+     $dimension=variable_get('user_picture_dimensions','');
+     $dimension_array=explode('x',$dimension);
+     $width=$dimension_array[0].'px';
+    }
+    else{
+      $profile_image = '<img src="'.$base_url.'/sites/default/noimage.png" />';
+    }
+
+    $userArray=user_load($row->uid);
+
+    $table_string .='<td align="left" valign="top" width="50%">';
+    $table_string .='<fieldset><legend></legend>';
+    $table_string .='<table border="0" cellpadding="0" cellspacing="0" width="100%">';
+    $table_string .= '<tr>
+                        <td rowspan="5" width="'.$width.'" align="center" valign="top" style="border:1px solid black">'
+			 .$profile_image.
+			'</td>
+		      </tr>';
+    $table_string .='<tr>
+                         <td>'.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.'</td>
+                     </tr>
+		     <tr>
+			 <td>
+			   <a href="javascript:void(0);" onclick="openGuruDetails('.$row->uid.')">'.t('View Profile').'</a>
+			 </td>
+                     </tr>
+		     <tr>
+			 <td><a href="javascript:void(0);" onclick="openGuruTimeSlots('.$row->uid.',0,'.$user->tid.');" title="View Time Slots">View Time Slots<a/></td>
+                     </tr>
+		     <tr>
+			 <td valign="bottom">
+			   <input type="button" value="Select teacher" onclick="selectGuru('.$row->uid.')" />
+			 </td>
+                     </tr>'; 
+    $table_string .='</table>';
+    $table_string .='</fieldset>';
+    $table_string .='</td>';
+  }
+  for(; $i<=2 ; $i++){
+    $table_string .='<td></td>';
+  }
+  $table_string .='</table>';
+  if(!$flag){
+    echo 'No teachers found for this package';
+    return;
+  }
+  else{
+    if($cnt>4){
+     //$table_string ='<div style="height:500px;overflow:auto">'.$table_string.'</div>';
+    }
+    echo $table_string.$popupString;
+  }
+}
+
+/**
+ * This function is used for fetching guru's details
+ */
+function fetch_guru_details(){
+ global $base_url;
+
+ $userid=trim($_POST['guru']);
+ if($userid==''){
+   echo 'No guru found';
+   return;
+ }
+
+ $query = "select u.uid,u.name,u.picture 
+            from {users} u
+	    where u.uid=%d";
+
+  $db_result=db_query($query,$userid);
+
+  $flag=0;
+  $table_string='';
+  while ($row = db_fetch_object($db_result)) {
+    $flag=1;    
+    $width='100px';
+    $profile_image_path=$row->picture;
+    if(file_exists($profile_image_path)){
+     $profile_image = '<img src="'.$base_url.'/'.$row->picture.'" />';
+     $dimension=variable_get('user_picture_dimensions','');
+     $dimension_array=explode('x',$dimension);
+     $width=$dimension_array[0].'px';
+    }
+    else{
+      $profile_image = '<img src="'.$base_url.'/sites/default/noimage.png" />';
+    }
+
+    $userArray=user_load($row->uid);
+
+    $table_string ='<fieldset>
+		  <legend></legend>
+		  <table border="0" cellpadding="0" cellspacing="0" width="100%">';
+    $table_string .= '<tr>
+                        <td rowspan="5" width="'.$width.'" align="center" valign="top" style="border:1px solid black">'
+			 .$profile_image.
+			 '<input type="hidden" name="guruname" id="guruname" value="'.$row->name.'" />'.
+			 '<input type="hidden" name="guruid" id="guruid" value="'.$row->uid.'" />'.
+			'</td>
+		      </tr>';
+    $table_string .='
+                     <tr>
+		       <td>'.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.'
+		       </td>
+		     </tr>
+                     <tr>
+			 <td>
+			   <a href="javascript:void(0);" onclick="openGuruDetails('.$row->uid.')">'.t('View Profile').'</a>
+			 </td>
+                     </tr>
+		     <tr>
+			 <td><a href="javascript:void(0);" onclick="openGuruTimeSlotsWithTimezone('.$row->uid.',0);" title="View Time Slots">View Time Slots<a/></td>
+                     </tr>
+		     <tr>
+			 <td valign="bottom">
+			   <input type="button" value="Change Teacher" onclick="showGuruList();" />
+			 </td>
+                     </tr>';
+    $table_string .='</table>
+                    </fieldset>';
+  }
+
+  if(!$flag){
+    echo 'No guru found';
+    return;
+  }
+  else{
+    echo $table_string;
+    return;
+  }
+
+}
+
+
+/**
+ * This function is used for conflict checking and searching for availability
+ */
+function check_guru_availability(){
+  
+  global $user;
+  $uid=$user->uid;
+  
+  $key=trim($_POST['key']);
+  if($key==''){
+    echo 'Invalid input found';
+    return;
+  }
+
+  $packageid = trim($_POST['pid']);
+  if($packageid==''){
+   die('Please select a package');
+  }
+
+  $currentDate=date('Y-m-d');
+  $returnValue = check_package_class_limit($packageid,$currentDate);
+  
+  if($returnValue == '-1'){
+    die("This package is disabled.");
+  }
+
+  if($returnValue == '0'){
+    die("Validity or live session is not defined for this package.\nPlease contact administrator.");
+  }
+  else if($returnValue == '2'){
+    die("You have used all classes for this package.");
+  }
+  else if($returnValue == '3'){
+    die("Validity for this package is expired.");
+  }
+
+  $dataarray=trim($_POST['arr']);
+
+  $key_array=explode('-',$key);
+  
+  $gid=trim($key_array[0]);
+  $tid=trim($key_array[1]);
+  $classTime=trim($key_array[2]);
+  $cdate=trim($key_array[3]);
+  $cdateArray=explode('/',$cdate);
+  $cdate=$cdateArray[2].'-'.$cdateArray[0].'-'.$cdateArray[1];
+
+  //echo $cdate.'---'.$currentDate;
+
+  if(strtotime($cdate)<strtotime($currentDate)){
+   die("You can not schedule a class whose date is smaller than current date.");
+  }
+
+  /*CHECK WHETHER SELECTED GURU IS AVAILABLE OR NOT (FOR +/- 1 DAYS)*/
+   $query="select count(*) as cnt
+           from {divine_guru_availability} d
+	   where d.isAvailable=1 and d.start_timestamp=%d
+	   and d.uid=%d";
+   
+   $db_result=db_query($query,$classTime,$gid);
+   $flag=0;
+   $teacherCnt=0;
+   while ($row = db_fetch_object($db_result)) {
+     $teacherCnt = $row->cnt;  
+   }
+
+   if($teacherCnt==0){
+     echo '4';
+     return;
+   }
+
+   /***CHECK WITH PREVIOUSLY SCHEDULED CLASSES***/
+   $query="select count(*) as cnt 
+           from {divine_guru_booking} 
+           where uid=%d and class_start_timestamp=%d
+	   ";
+   $db_result=db_query($query,$uid,$classTime);
+   $count=0;
+   while ($row = db_fetch_object($db_result)) {
+     $count=$row->cnt;
+   }
+   if($count!=0){
+     echo '2';
+     return;
+   }
+
+
+   /*CHECK WITH VALUES WHICH ARE NOT IN DATABASE BUT ARE SELECTED BY THE USER*/
+   if($dataarray!=''){
+    $data_array=explode(',',$dataarray);
+    $cnt=count($data_array);
+    for($i=0; $i<$cnt; $i++){
+      if(trim($data_array[$i])==''){
+        continue;
+      }
+      
+      $tArray = explode('-',$data_array[$i]);
+      $pTid = trim($tArray[1]);
+      $pTime = trim($tArray[2]);
+      
+      if($pTime == $classTime){
+       echo '3';
+       return;
+      }   
+    }
+   }
+
+   echo '1';
+   return;
+}
+
+
+/**
+ * This function is used for validating authenticity of booking id
+ */
+function check_user_booking_authenticity($bid){
+  $bid = trim($bid);
+  if($bid==''){
+    return 0;
+  }
+
+  global $user;
+  $uid=$user->uid;
+
+  $currentTime=strtotime(date("Y-m-d"));
+
+  $query = "select class_date from {divine_guru_booking} where uid=%d and bid=%d";
+  $db_result = db_query($query,$uid,$bid);
+  $flag=0;
+  while ($row = db_fetch_object($db_result)) {
+     if( $currentTime <= strtotime($row->class_date) ){
+       return 1;
+     }
+     else{
+       return 0;
+     }
+  }
+
+  if(!$flag){
+    return 0;
+  }
+
+  return 1;
+
+}
+
+/**
+ * This function is used for saving booking informtion
+ */
+function save_booking(){
+  global $user,$base_url;
+  $uid=$user->uid;
+  
+  $userArray = user_load($uid);
+  $booked_by_user_name = $userArray->profile_inst_fname.' '.$userArray->profile_inst_lname;
+
+  $dataarray=trim($_POST['arr']);
+  $cnt=count($dataarray);
+  
+  $flag=0;
+  for($i=0; $i<$cnt; $i++){
+    if(trim($dataarray[$i])!=''){
+      $flag=1;
+      break;
+    }
+  }
+
+  if(!$flag){
+    echo 'Please select at least one class details before confirming';
+    return;
+  }
+
+  $packageId=trim($_POST['pid']);
+  if($packageId==''){
+    echo 'Please select a package';
+    return;
+  }
+
+ //For edit operation
+ $ebid=trim($_POST['ebid']);
+ if($ebid!=''){
+   if(!check_user_booking_authenticity($ebid)){
+     echo 'Invalid input specified';
+     return;
+   }
+ }
+
+ 
+ $data_array=explode(',',$dataarray);
+ $cnt=count($data_array);
+ $tempArray=array();
+ //remove blank and duplicate entries
+ for($i=0; $i<$cnt; $i++){
+   if(trim($data_array[$i])==''){
+      continue;
+   }
+   $tempArray[]=$data_array[$i];
+ }
+ $data_array=array_values(array_unique($tempArray));
+ $cnt=count($data_array);
+
+
+ $classCounter=1;  //to leave first two rows of the table
+ 
+ $availabilityArray=array();
+ $bookingArray=array();
+
+ 
+ /*****START TRANSACTION*****/
+ $query = "START TRANSACTION";
+ $ret   = db_query($query);
+ if(!$ret){
+    echo 'err:1!$@$!*!$@$!err_type:6!$@$!*!$@$!err_counter:0'; //problem with update
+    return;
+ }
+ 
+ 
+ /*
+  *******************************************************************************************
+   During edit we will temporarily made guru available.If the guru is available in 
+   updated date and time then it will remain available otherwise we will make it unavailable 
+   again.Also previous records in booking table will be deleted and inserted again.
+  ********************************************************************************************
+ */
+
+if($ebid!=''){
+  $query = "SELECT * FROM {divine_guru_booking} WHERE bid=%d";
+  $db_result=db_query($query,$ebid);
+  while ($row = db_fetch_object($db_result)) {
+     $oaid = $row->aid;
+     $opackageid = $row->packageid;
+     $ouid = $row->uid;
+     $otid = $row->tid;
+     $oclass_date = $row->class_date;
+     $oclass_time = $row->class_time;
+     $oclass_start_timestamp = $row->class_start_timestamp;
+     $oclass_end_timestamp   = $row->class_end_timestamp;
+
+     $packageId = $row->packageid; //fetch old package id so that package remains the same.
+  }
+  if($oaid!=''){
+    $query = "UPDATE {divine_guru_availability} SET isAvailable=1 WHERE aid=%d";
+    $ret   = db_query($query,$oaid);
+    if(!$ret){
+      echo 'err:1!$@$!*!$@$!err_type:6!$@$!*!$@$!err_counter:0'; //problem with update
+      return;
+    }
+    if($ebid!=''){
+      $query ="DELETE FROM {divine_guru_booking} WHERE bid=%d";
+      $ret   = db_query($query,$ebid);
+      if(!$ret){
+       echo 'err:1!$@$!*!$@$!err_type:6!$@$!*!$@$!err_counter:0'; //problem with update
+       return;
+      }
+    }
+  }
+}
+else{  // check package validtity and class limit during addition of new records
+
+  $currentDate=date('Y-m-d');
+  $returnValue = check_package_class_limit($packageId,$currentDate);
+  
+  if($returnValue == '-1'){
+    echo "err:1!$@$!*!$@$!err_type:7!$@$!*!$@$!This package is disabled."; 
+    return;
+  }
+
+  if($returnValue == '0'){
+    echo "err:1!$@$!*!$@$!err_type:7!$@$!*!$@$!Validity or live session is not defined for this package.\nPlease contact administrator."; 
+    return;
+  }
+  else if($returnValue == '2'){
+    echo 'err:1!$@$!*!$@$!err_type:7!$@$!*!$@$!You have used all classes for this package.'; 
+    return;
+  }
+  else if($returnValue == '3'){
+    echo 'err:1!$@$!*!$@$!err_type:7!$@$!*!$@$!Validity for this package is expired.'; 
+    return;
+  } 
+}
+
+
+//check for trail class
+$query = "select count(*) as cnt from {divine_guru_booking} where uid=%d";
+$db_result=db_query($query,$uid);
+$isTrialClassCount=0;
+$isTrial=0;
+while ($row = db_fetch_object($db_result)) {
+  $isTrialClassCount =$row->cnt;
+}
+
+//if no classes are scheduled by this user,then first class will be trial class
+if($isTrialClassCount==0){ 
+  $isTrial = 1 ;
+}
+
+ 
+ //for storing mail ids and body of mails
+ $mailArray=array();
+ $mailData='';
+ $mailCounter = 1;
+
+ if($ebid==''){ // if it is addition operation , then perform status updation
+     $remaining_class = 0;
+     $query = "select (classes_left-$cnt) as remaining_class from {divine_user_package_status} where uid=%d and packageid=%d";
+     $db_result=db_query($query,$uid,$packageId);
+     while ($row = db_fetch_object($db_result)) {
+      $remaining_class = $row->remaining_class;
+     }
+     if($remaining_class < 0 ){
+       //class limit exceeds
+       echo 'err:1!$@$!*!$@$!err_type:7!$@$!*!$@$!You have used all classes for this package.'; 
+       return;
+     }
+     
+     $query ="select count(*) as cnt from {divine_user_package_status} where uid=%d and packageid=%d";
+     $db_result=db_query($query,$uid,$packageId);
+     $prevStatus=0;
+     while ($row = db_fetch_object($db_result)) {
+       $prevStatus = $row->cnt;
+     }
+     if($prevStatus>0){ // update
+       $query = "update {divine_user_package_status} set classes_left=%d where uid=%d and packageid=%d";
+       $ret=$db_result=db_query($query,$remaining_class,$uid,$packageId);
+       if(!$ret){
+         echo 'err:1!$@$!*!$@$!err_type:6!$@$!*!$@$!err_counter:0'; //problem with update
+         return;
+       }
+     }
+     else{//insert
+       $packageArray = node_load($packageId);
+       $packageClasses = intval($packageArray->field_live_sessions[0]['value']);
+
+       $packageClasses = $packageClasses - $cnt + $isTrial;
+
+       $query = "insert into {divine_user_package_status} (packageid,uid,classes_left,expiry_timestamp)
+                 values(%d,%d,%d,%d)";
+       $ret=$db_result=db_query($query,$packageId,$uid,$packageClasses,$currentDateTimeStamp);
+       if(!$ret){
+         echo 'err:1!$@$!*!$@$!err_type:6!$@$!*!$@$!err_counter:0'; //problem with update
+         return;
+       } 
+     }
+ }
+
+ 
+ for($i=0; $i<$cnt; $i++){
+
+   //Setting it to Default Time Zone
+    date_default_timezone_set("UTC");
+
+   $classCounter++;
+  
+   $tArray=explode('-',$data_array[$i]);
+   $gid=trim($tArray[0]);
+   $tid=trim($tArray[1]);
+   $classTime=trim($tArray[2]);
+   $classDate=trim($tArray[3]);
+   $classDateArray=explode('/',$classDate);
+   $classDate=$classDateArray[2].'-'.$classDateArray[0].'-'.$classDateArray[1];
+
+
+   /*CHECK WHETHER SELECTED GURU IS AVAILABLE OR NOT (FOR +/- 1 DAYS)*/
+   $query="select *
+           from {divine_guru_availability} d
+	   where d.isAvailable=1 and d.start_timestamp=%d
+	   and d.uid=%d";
+   
+   $db_result=db_query($query,$classTime,$gid);
+   $flag=0;
+   while ($row = db_fetch_object($db_result)) {
+     $flag = 1;
+     $availabilityId = $row->aid;
+   }
+
+   if($flag==0){
+     echo 'err:1!$@$!*!$@$!err_type:4!$@$!*!$@$!err_counter:'.$classCounter;
+     return;
+   }
+
+   /***CHECK WITH PREVIOUSLY SCHEDULED CLASSES***/
+   $query="select count(*) as cnt 
+           from {divine_guru_booking} 
+           where uid=%d and class_start_timestamp=%d
+	   ";
+   $db_result=db_query($query,$uid,$classTime);
+   $count=0;
+   while ($row = db_fetch_object($db_result)) {
+     $count=$row->cnt;
+   }
+   if($count!=0){
+     echo 'err:1!$@$!*!$@$!err_type:2!$@$!*!$@$!err_counter:'.$classCounter;
+     return;
+   }
+
+   /*CHECK WITH OTHER USER ENTERED VALUES*/
+   for($j=0; $j<$cnt; $j++){
+     if(trim($data_array[$i])==trim($data_array[$j])){ // no check with same values
+      continue;
+     }
+
+     $tArray=explode('-',$data_array[$j]);
+     $pgid=trim($tArray[0]);
+     $ptid=trim($tArray[1]);
+     $pclassTime=trim($tArray[2]);
+     $pclassDate=trim($tArray[3]);
+     $pclassDateArray=explode('/',$pclassDate);
+     $pclassDate=$pclassDateArray[2].'-'.$pclassDateArray[0].'-'.$pclassDateArray[1];
+
+      if($pclassTime == $classTime){
+       echo 'err:1!$@$!*!$@$!err_type:3!$@$!*!$@$!err_counter:'.$classCounter;
+       return;
+      } 
+    }
+
+    $classStartTime = $classTime;
+    $classEndTime   = $classStartTime + 59*60 ; //59 minutes each
+
+    //fetch timezone and adjust text of the time accordingly
+    $query ="select timezone from {divine_timezone} where tid=%d";
+    $db_result=db_query($query,$tid);
+    $fetchedTimezone ='';
+    while ($row = db_fetch_object($db_result)) {
+     $fetchedTimezone = trim($row->timezone);
+    }
+    if($fetchedTimezone!=''){
+      @date_default_timezone_set($fetchedTimezone);
+    }
+    $classTimeText = date('g:ia',$classTime).'---'.date('g:ia',$classTime+60*60);
+
+    $availabilityArray[]=$availabilityId;
+    $bookingArray[]=array($availabilityId,$packageId,$uid,$tid,$classDate,$classTimeText,$classStartTime,$classEndTime,$isTrial);
+    $isTrial=0;
+    
+    //Setting it to Default Time Zone
+    date_default_timezone_set("UTC");
+  }
+
+   /*Now the queries*/
+
+   $cnt=count($availabilityArray);
+   if($cnt==0){
+    echo 'err:1!$@$!*!$@$!err_type:5!$@$!*!$@$!err_counter:0'; //problem with data
+    return;
+   }
+
+   for($i=0; $i<$cnt; $i++){
+     //insert into booking table
+     $bArray=$bookingArray[$i];
+
+     $query =" INSERT INTO {divine_guru_booking} 
+              (aid,packageid,uid,tid,class_date,class_time,class_start_timestamp,class_end_timestamp,isTrial)
+	      VALUES
+	      (%d,%d,%d,%d,'%s','%s',%d,%d,%d)
+	     ";
+     $returnValue = db_query($query,$bArray[0],$bArray[1],$bArray[2],$bArray[3],$bArray[4],$bArray[5],$bArray[6],$bArray[7],$bArray[8]);
+     if(!$returnValue){
+       echo 'err:1!$@$!*!$@$!err_type:6!$@$!*!$@$!err_counter:0'; //problem with insert
+       return;
+     }
+
+     $query = "UPDATE {divine_guru_availability} SET isAvailable=0 WHERE aid=%d";
+     $returnValue = db_query($query,$availabilityArray[$i]);
+     if(!$returnValue){
+       echo 'err:1!$@$!*!$@$!err_type:6!$@$!*!$@$!err_counter:0'; //problem with update
+       return;
+     }
+
+     /*CODE FOR MAIL*/
+     $query="SELECT u.uid,u.mail,t.name as slot_name,a.dated as booking_date
+             from {users} u, {divine_guru_availability} a , {divine_time_slot } t
+	     where u.uid=a.uid and a.sid=t.sid and a.aid=%d";
+     $db_result = db_query($query,$availabilityArray[$i]);
+
+     while ($row = db_fetch_object($db_result)) {
+        $mid = $row->uid;
+	$mail = trim($row->mail);
+	if($mailData!=''){
+	  $mailData .='<br/>';
+	}
+	$mailData .= $mailCounter. ". ".date("d M, Y",strtotime($row->booking_date))." in ( ".$row->slot_name." ) time slot .";
+	if($mail!=''){
+	  $userArray = user_load($mid);
+	  $guru_name =$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname;
+	  $mailArray[$mail] = "Dear ".$guru_name." , <br/> ".$booked_by_user_name." booked a class of you on <br/>".$mailData;
+	}
+     }
+     $mailCounter ++;
+     /*CODE FOR MAIL ENDS*/
+   }
+
+   /*****COMMIT TRANSACTION*****/
+   $query = "COMMIT";
+   $ret   = db_query($query);
+   if(!$ret){
+    echo 'err:1!$@$!*!$@$!err_type:6!$@$!*!$@$!err_counter:0'; //problem with update
+    return;
+   }
+   
+   //send notification mail to guru
+   foreach($mailArray as $key=>$val){
+     $params = array(
+      'body' => $val,
+      'subject' => 'Notification for class booking at '.$base_url
+     );
+     drupal_mail('divine_guru_booking', 'notification_mails_gurus_for_booking', $key, language_default(), $params, variable_get('site_mail', ini_get('sendmail_from')));
+   }
+   
+   echo 'err:0'; //no error found and data save successfully
+   return;
+}
+
+
+/*
+ * hook_mail
+*/
+function divine_guru_booking_mail($key, &$message, $params) { 
+  switch($key) {
+    case 'notification_mails_gurus_for_booking':         
+      // define subject and body
+      $message['headers']['Content-Type'] = 'text/html; charset=UTF-8; format=flowed';
+      $message['subject'] = $params['subject'];
+      $message['body'] = $params['body'];;       
+      break;
+  }
+}
+
+
+/**
+ * This function is used for deleting scheduled classes record
+ */
+function delete_booking(){
+  $bid=trim($_POST['key']);
+
+  if($bid==''){
+    echo 'Invalid input data specified';
+    return;
+  }
+
+  if(!check_user_booking_authenticity($bid)){
+     echo 'Invalid input specified';
+     return;
+  }
+
+  global $user;
+  $uid=$user->uid;
+
+  /*****START TRANSACTION*****/
+  $query = "START TRANSACTION";
+  $ret   = db_query($query);
+  if(!$ret){
+    echo 'Could not delete data';
+    return;
+  }
+
+  $query ="select aid,packageid from {divine_guru_booking} where uid=%d and bid=%d";
+  $db_result=db_query($query,$uid,$bid);
+
+  $aid='';
+  $packageid='';
+  while ($row = db_fetch_object($db_result)) {
+     $aid = $row->aid;
+     $packageid = $row->packageid;
+  }
+
+  if($aid==''){
+    echo 'Could not delete data';
+    return;
+  }
+
+  //delete from booking table
+  $query = "delete from {divine_guru_booking} where uid=%d and bid=%d";
+  $ret = $db_result=db_query($query,$uid,$bid);
+  if(!$ret){
+    echo 'Could not delete data';
+    return;
+  }
+
+  //update status table
+  $query = "update {divine_user_package_status} set classes_left = ( classes_left +1 ) where uid=%d and packageid=%d";
+
+  $ret = $db_result=db_query($query,$uid,$packageid);
+  if(!$ret){
+    echo 'Could not delete data';
+    return;
+  }
+
+  //update availability table
+  $query = "update {divine_guru_availability} set isAvailable=1 where aid=%d";
+  $ret = $db_result=db_query($query,$aid);
+  if(!$ret){
+    echo 'Could not delete data';
+    return;
+  }
+
+  /*****COMMIT TRANSACTION*****/
+  $query = "COMMIT";
+  $ret   = db_query($query);
+  if(!$ret){
+    echo 'Could not delete data';
+    return;
+  }
+
+  echo '1';
+  return;
+}
+
+
+/**
+ * This function is used for showing scheduled class list in normal user login
+ * mode :1 => Page View, 2: => Block View
+ */
+function show_scheduled_classes($mode=1){
+  global $user,$base_url;
+  $uid=$user->uid;
+  
+  $module_path=drupal_get_path('module', 'divine_guru_booking');
+  //drupal_add_js($module_path.'/js/booking.js','module');
+  drupal_add_js('var jsURL="'.$base_url.'/guru-booking/"','inline');
+
+  $currentTime=strtotime(date("Y-m-d"));
+
+  if($mode==1){
+     $header = array(
+          t('Sr.No.'),
+          t('Class'),
+          t('Edit'),
+          t('Delete')
+     );
+   }
+   else{
+     $header = array(
+        t(''),
+        t('Class'),
+        t('Edit'),
+        t('Delete')
+     );
+   }
+
+   $query="SELECT dgb.*,dga.uid as gid,dt.name as timezone 
+          FROM {divine_guru_booking} dgb, {divine_guru_availability} dga, {divine_timezone} dt
+	  WHERE dgb.aid=dga.aid and dgb.tid=dt.tid and dgb.uid=$uid ORDER BY dgb.isTrial DESC 
+	  ";
+   $query .= tablesort_sql($header);
+
+   $totalQuery="SELECT COUNT(*)  
+          FROM {divine_guru_booking} dgb, {divine_guru_availability} dga
+	  WHERE dgb.aid=dga.aid and dgb.uid=$uid
+	  ";
+  
+  //how many records per page / block
+  if($mode==1){
+    $nodes_per_page = 25; 
+  }
+  else{
+    $nodes_per_page = 3; 
+  }
+
+  $query_result = pager_query($query,$nodes_per_page,0,$totalQuery);
+
+  $rows = array();
+  $flag=0;
+  $i=1;
+  while ($links = db_fetch_object($query_result)) {
+     $flag=1;
+     $data = 'With Guru ';
+     $userArray=user_load($links->gid);
+     $data .= $userArray->profile_inst_fname.' '.$userArray->profile_inst_lname;
+     if($mode!=1){
+       $data .= '<br/>';
+     }
+     //$data .= ' on '.date("m/d/Y g:i A",strtotime($links->class_date.' '.$links->class_time));
+     $data .= ' on '.date("m/d/Y",strtotime($links->class_date)).' '.$links->class_time;
+     $data .= ' in '.$links->timezone;
+     $srNo = "";
+     if($mode==1){
+      $srNo = $i;
+      $i++;
+     }
+     if($currentTime <= strtotime($links->class_date)){
+     if($links->isTrial==0){  // trial classes can not be edited/deleted
+      $editLink = '<a href="javascript:void(0);" onclick="editClassSchedule('.$links->bid.')" title="Edit this schedule">Edit</a>';
+      $deleteLink = '<a href="javascript:void(0);" onclick="deleteClassSchedule('.$links->bid.')" title="Delete this schedule">Delete</a>';
+      }
+      else{
+        $data .= '(Trial Class)';
+        $editLink   = '---' ;
+        $deleteLink = '---' ;
+      }
+     }
+     else{
+       $editLink   = '---' ;
+       $deleteLink = '---' ;
+     }
+
+     $rows[] =array($srNo,$data,$editLink,$deleteLink);
+  }
+
+  if(!$flag){
+    $rows[]=array(
+                    array('data'=>'<b>No scheduled classes found</b>','colspan'=>4,'style'=>'text-align:center')
+		 );
+  }
+
+  return theme('table', $header, $rows).theme('pager', NULL, $nodes_per_page,0);
+
+}
+
+/**
+ * This function is used for displaying guru's time slot in user login according to user
+ * selected time zone
+ */
+function show_guru_availability_week_format_user_login($gid,$week_counter=0,$bookedByUserId,$timezoneId){
+  
+  //set timezone to UTC
+   date_default_timezone_set("UTC");
+
+  $module_path=drupal_get_path('module', 'divine_guru_booking');
+  //drupal_add_js($module_path.'/js/booking.js','module');
+  drupal_add_js('var jsURL="'.$base_url.'/guru-booking/"','inline');
+
+  $prev_week_counter='';
+  $next_week_counter='';
+  $current_week_counter='';
+  if($week_counter>0){
+    $prev_week_counter='<div style="float:left;width:33%"><a href="javascript:void(0);" onclick="loadData('.$gid.','.($week_counter-1).','.$timezoneId.')">'.t('Previous Week').'</a></div>';
+  }
+  else{
+    $prev_week_counter='<div style="float:left;width:33%">&nbsp;</div>';
+  }
+ 
+  $next_week_counter='<div style="float:right;text-align:right;width:33%"><a href="javascript:void(0);" onclick="loadData('.$gid.','.($week_counter+1).','.$timezoneId.')">'.t('Next Week').'</a></div>';
+
+  $current_week_counter='<div style="float:left;text-align:center;width:33%"><a href="javascript:void(0);" onclick="loadData('.$gid.',0,'.$timezoneId.')">'.t('Current Week').'</a></div>'; 
+ 
+  $navaigation_string=$prev_week_counter.$current_week_counter.$next_week_counter.'<div style="clear:both"></div>';
+
+  $temp_week_counter=7*$week_counter;
+
+  $timezoneId = trim($timezoneId);
+  if($timezoneId==''){
+   return 'Invalid Input Data';
+  }
+
+  $current_date=date("Y-m-d");
+  $date_timestamp=strtotime("+".$temp_week_counter." day",strtotime($current_date));
+  
+  $month=date("m",$date_timestamp);
+  $year=date("Y",$date_timestamp);
+  $day=date("d",$date_timestamp);
+
+  $day_of_week=date("N",$date_timestamp);
+  if($day_of_week==1){
+   $monday_date=date("Y-m-d",$date_timestamp);
+  }
+  else{
+   $monday_date=date("Y-m-d", mktime(0, 0, 0, $month, $day+(1-$day_of_week), $year));
+  }
+
+  if($day_of_week==7){
+   $sunday_date=date("Y-m-d",$date_timestamp);
+  }
+  else{
+   $sunday_date=date("Y-m-d", mktime(0, 0, 0, $month, $day+(7-$day_of_week), $year));
+  }
+
+  //echo $monday_date;
+
+  $monday_date_timestamp=strtotime($monday_date);
+  $sunday_date_timestamp=strtotime($sunday_date);
+
+  $tableString = '<table border="1" cellpadding="0" cellspacing="0">';
+  $tableString .= '<tr>';
+
+  $temp_timestamp=$monday_date_timestamp;
+  while($temp_timestamp<=$sunday_date_timestamp){
+       $tableString .= '<td align="center"><b>'.t(date("Y-m-d",$temp_timestamp).'<br>'.date("d",$temp_timestamp).' '.date("M",$temp_timestamp).','.date("Y",$temp_timestamp)).'</td>';
+       $temp_timestamp=strtotime("+1 day",$temp_timestamp).'</b>';  
+  }
+  $tableString .='</tr>';
+
+  $tableString = '<table border="1" cellpadding="1" cellspacing="1">';
+
+
+  /*FETCH TIMEZONE AND ITS ADJUSTMENTS*/ 
+  $query="select name,timezone,offsettime,offsetsign from {divine_timezone} where tid=%d";
+  $db_result = db_query($query,$timezoneId);
+   
+  $adjusted_time=0;$offset_time=0;$offset_sign=0;$timezone=0;
+  $timezone_name='';$isDst=0;$name='';
+  while ($row = db_fetch_object($db_result)) {
+      $offset_time = $row->offsettime;
+      $offset_sign = $row->offsetsign;
+      $timezone    = $row->tid;
+      $timezone_name= $row->timezone;
+      $name = $row->name;
+      if($timezone_name!=''){
+       @date_default_timezone_set($timezone_name); //to suppress warnings for not supported timezones
+       $isDst = date("I");
+      }
+  }
+  if($offset_time!=0){
+    $arr=explode(':',$offset_time);
+    $adjusted_time=$arr[0]*60*60+$arr[1]*60;
+    if($offset_sign=='1'){
+     if($isDst==1){
+       $adjusted_time = $adjusted_time + 3600 ; //for DST
+     }
+    }
+    else{
+      if($isDst==1){
+         $adjusted_time = $adjusted_time - 3600 ; //for DST
+      }
+      $adjusted_time = 0 - $adjusted_time;
+    }
+  }
+
+  //set timezone to UTC
+  date_default_timezone_set("UTC");
+
+  /*FETCH RECORDS FROM SLOTS TABLE*/
+  $query="select sid,name,start_time,end_time from {divine_time_slot}";
+     
+  $db_result = db_query($query);
+  $flag=false;
+  $dateArray=array(); 
+  //echo $adjusted_time;
+  while ($row = db_fetch_object($db_result)) {
+      $flag=true;
+      $slotid=$row->sid;
+      $slotname=$row->name;
+      $start_time=$row->start_time;
+      $end_time=$row->end_time;
+      $temp_timestamp=$monday_date_timestamp;
+
+      while($temp_timestamp<=$sunday_date_timestamp){
+          $dt=date("Y-m-d",$temp_timestamp);
+          
+	  //adjust according to user's selected time zone
+	  /*
+	  $startTimeStamp=strtotime(date($dt.' '.$start_time))+$adjusted_time;
+	  $endTimeStamp=strtotime(date($dt.' '.$end_time))+$adjusted_time;
+	  */
+	  
+	  $startTimeStamp=strtotime(date($dt.' '.$start_time)) + $adjusted_time ;
+          $endTimeStamp=strtotime(date($dt.' '.$end_time)) + $adjusted_time;
+	  
+	  $current_date_time = date("Y-m-d",$temp_timestamp).' 23:59';
+            
+          if($startTimeStamp < strtotime($current_date_time) ){
+          // $startTimeStamp = $startTimeStamp - 24*60*60;
+	   //$endTimeStamp   = $endTimeStamp - 24*60*60;
+          }
+	  /*
+	  else if($startTimeStamp < strtotime($current_date_time) ){
+           $startTimeStamp = $startTimeStamp + 24*60*60;
+	   $endTimeStamp   = $endTimeStamp + 24*60*60;
+          }
+	  */
+	  
+	  /*else if($startTimeStamp < strtotime($current_date_time) and $endTimeStamp < strtotime($current_date_time)){
+           $startTimeStamp = $startTimeStamp + 24*60*60;
+	   $endTimeStamp   = $endTimeStamp + 24*60*60;
+         }
+	 */
+	  
+	 if($startTimeStamp<$endTimeStamp){ 
+	  $slotname=date("d M g:ia",$startTimeStamp).'<br>To<br/>'.date("d M g:ia",$endTimeStamp);
+	 }
+	 else{
+	  $slotname=date("d M g:ia",$startTimeStamp).'<br>To<br/>'.date("d M g:ia",$endTimeStamp+24*60*60);
+	 }
+
+          $dateArray[]=array($slotname,$startTimeStamp,$endTimeStamp,-1,$row->sid,date("Y-m-d",$startTimeStamp));
+          $temp_timestamp=strtotime("+1 day",$temp_timestamp);  
+      }
+  }
+//echo '<pre>';
+//print_r($dateArray);
+//die;
+  if(!$flag){
+    $tableString .= '<tr><td colspan="7">No Records Found</td></tr>';
+    $tableString .= '</table>';
+    return $tableString;
+  }
+
+  //echo $adjusted_time.'--'.$isDst.'---'.$timezone_name;
+  //die;
+
+  $userArray= user_load($gid);
+  $searchString = '<h1>Time Slots of : '.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.' in timezone : '.$name.'</h1>';
+  $searchString = '<div>'.$searchString.'</div><div style="clear:both"></div>';
+
+  
+
+  //set timezone to UTC
+  date_default_timezone_set("UTC");
+
+  /*FETCH RECORDS FROM AVAILIBILITY TABLE AND ADJUST TIME ACCORDING TO TIMEZONE*/
+   $query="select ga.aid,ga.uid,ga.sid,ga.dated,ga.isAvailable,ga.start_timestamp,ga.end_timestamp,ga.tid,
+           IFNULL(gb.uid,-1) as booked_by,
+	   IF(gb.isTrial=1,1,0) as isTrialClass,
+	   IFNULL(gb.bid,-1) as bid
+           from {users} u , {divine_time_slot} dt,
+	   {divine_guru_availability} ga
+	   LEFT JOIN {divine_guru_booking} gb ON ga.aid=gb.aid
+	   where ga.uid=u.uid and ga.sid=dt.sid 
+	   and u.uid=%d and 
+	   (ga.dated >=DATE_ADD('%s',INTERVAL -1 DAY) and ga.dated<=DATE_ADD('%s',INTERVAL +1 DAY))
+           ";
+   $db_result = db_query($query,$gid,$monday_date,$sunday_date);
+  
+
+  $existing_records=array();
+  $availabilityArray=array();
+  $bookeByArray=array();
+  while ($row = db_fetch_object($db_result)) {
+    
+    $tzAdjustment = fetch_time_zone_adjustment($row->tid);
+    $tzDiff = ($adjusted_time - $tzAdjustment) ;
+    
+    //set timezone to UTC
+    date_default_timezone_set("UTC");
+
+    $existing_records[] =array(
+                                $row->aid,
+				$row->start_timestamp + $adjusted_time,
+				$row->end_timestamp + $adjusted_time,
+				$row->isAvailable,
+				$row->booked_by,
+				$row->isTrialClass,
+				$row->bid,
+				$row->sid
+			      );
+    $availabilityArray[$row->uid.'-'.$row->sid.'-'.$row->dated] = $row->isAvailable;
+    $bookeByArray[$row->uid.'-'.$row->sid.'-'.$row->dated] = $row->booked_by;
+  }
+  //echo '<pre>';
+  //print_r($existing_records);
+  //die;
+
+  /*BUILD THE TABLE STRUCTURE*/
+  $rowCnt=0;
+  foreach($dateArray as $key=>&$dtArray){
+     if($rowCnt % 7 == 0 and $rowCnt!=0){
+       $tableString .='</tr><tr>';
+     }
+     $rowCnt ++ ;
+
+     $startTime=$dtArray[1];
+     $endTime=$dtArray[2];
+     $marked=-1;
+     $name=$dtArray[0];
+     if($dtArray[3]!=-1){ // if it is available or unavilable then do not process
+       continue;
+     }
+     $onclick='';
+     foreach($existing_records as $key1=>$guruArray){
+	if( ($guruArray[1] == $startTime) and ($guruArray[2] == $endTime ) ){
+	  if($guruArray[3]==0){ //if unavailable
+	    if($guruArray[4]==$bookedByUserId){
+	      $marked = 3;  //if booked by this user
+	      if($guruArray[5]!=1){ // if it is not trial class,then give option of editing
+	        //$onclick = 'onclick=editClassSchedule("'.$guruArray[6].'");';    
+	      }
+	    }
+	    else{
+	      $marked = 2;  // if booked by different user
+	    }
+	  }
+	  else{ //if available
+	     $marked = 1 ;
+	     //$onclick = 'onclick=pupulateFields("'.$gid.'","'.date("m/d/Y",$startTime).'","'.date("H:i",$startTime).'");';
+	  }
+	}
+     }
+     $dtArray[3]=$marked;
+     $dtArray[0]=$name;
+     if($dtArray[3]==1){
+       $style = 'style="background-color:#80ff80"';
+       //$title = 'title="This time slot is available.Click here to book."';
+       $title = 'title="This time slot is available."';
+     }
+     else if($dtArray[3]==2){
+       $style='style="background-color:#ff3535"';
+       $title = 'title="This time slot is booked"';
+     }
+     else if($dtArray[3]==3){
+       $style='style="background-color:#80e1ec"';
+       //$title = 'title="This time slot is booked by you.Click here to edit."';
+       $title = 'title="This time slot is booked by you."';
+     }
+     else{
+       $style='style="background-color:#e5e5e5"';
+       $title = 'title="This time slot is unavailable"';
+     }
+     $tableString .='<td align="center" '.$style.' '.$title.' '.$onclick.' nowrap>'.$dtArray[0].'</td>';
+     $onclick='';
+  }
+  $tableString .='</tr></table>';
+
+  return $searchString.$navaigation_string.$tableString.$navaigation_string;
+}
+
+/**
+ * This function is used for displaying guru's time slot in user login according to user
+ * selected time zone.
+ */
+function fetch_guru_timeslots(){
+   global $user;
+   $uid=$user->uid;
+
+   $gid  = trim($_POST['gid']);
+   $week = trim($_POST['week']);
+   $timezoneId = trim($_POST['timezone']);
+	
+   if($gid=='' or $week=='' or $timezoneId==''){
+     echo 'Invalid Input Data';
+   }
+
+   echo show_guru_availability_week_format_user_login($gid,$week,$uid,$timezoneId);
+   return;
+}
+
+/**
+ * This function is used for calculating time zone difference with respect to UTC
+ */
+function fetch_time_zone_adjustment($timezoneId){
+
+  /*FETCH TIMEZONE AND ITS ADJUSTMENTS*/ 
+    $query="select name,timezone,offsettime,offsetsign from {divine_timezone} where tid=%d";
+    $db_result = db_query($query,$timezoneId);
+   
+    $adjusted_time=0;$offset_time=0;$offset_sign=0;$timezone=0;
+    $timezone_name='';$isDst=0;$name='';
+    while ($row = db_fetch_object($db_result)) {
+      $offset_time = $row->offsettime;
+      $offset_sign = $row->offsetsign;
+      $timezone    = $row->tid;
+      $timezone_name= $row->timezone;
+      $name = $row->name;
+      if($timezone_name!=''){
+       @date_default_timezone_set($timezone_name); //to suppress warnings for not supported timezones
+       $isDst = date("I");
+      }
+   }
+   if($offset_time!=0){
+    $arr=explode(':',$offset_time);
+    $adjusted_time=$arr[0]*60*60+$arr[1]*60;
+    if($offset_sign=='1'){
+     if($isDst==1){
+       $adjusted_time = $adjusted_time + 3600 ; //for DST
+     }
+    }
+    else{
+      if($isDst==1){
+         $adjusted_time = $adjusted_time - 3600 ; //for DST
+      }
+      $adjusted_time = 0 - $adjusted_time;
+    }
+  }
+
+  return $adjusted_time;
+}
+
+/**
+ * This function is used for displaying guru's time slot in user login according to user
+ * selected time zone in time dropdown
+ */
+function fetch_guru_available_timeslots(){
+  
+   global $user;
+   $uid = $user->uid;
+
+   //set timezone to UTC
+   date_default_timezone_set("UTC");
+
+   $gid   = trim($_POST['guru']);
+   $timezoneId = trim($_POST['tid']);
+   $editMode = trim ($_POST['em']);
+   $dated = trim($_POST['dt']);
+
+   $dateArray = explode('/',$dated);
+   $dated = $dateArray[2].'-'.$dateArray[0].'-'.$dateArray[1];
+
+   $timezoneId = trim($timezoneId);
+   if($timezoneId==''){
+    echo 'Invalid Input Data';
+    return;
+   }
+
+  //set timezone to UTC
+  date_default_timezone_set("UTC");
+   
+  
+  $monday_date_timestamp = strtotime($dated);
+  $sunday_date_timestamp = strtotime($dated);
+
+  $monday_date = $dated;
+  $sunday_date = $dated;
+
+
+  /*FETCH TIMEZONE AND ITS ADJUSTMENTS*/ 
+  $query="select name,timezone,offsettime,offsetsign from {divine_timezone} where tid=%d";
+  $db_result = db_query($query,$timezoneId);
+   
+  $timezone_name='';
+  while ($row = db_fetch_object($db_result)) {
+      $timezone_name= $row->timezone;
+  }
+  
+ //set timezone to UTC
+ date_default_timezone_set("UTC");
+
+ //$dateTime1 = strtotime(date($dated.' 00:00'));
+ //$dateTime2 = strtotime(date($dated.' 23:59'));
+
+
+/*FETCH RECORDS FROM AVAILIBILITY TABLE AND ADJUST TIME ACCORDING TO TIMEZONE*/
+   $query="select ga.aid,ga.uid,ga.sid,ga.dated,ga.isAvailable,ga.start_timestamp,ga.end_timestamp,ga.tid,
+           IFNULL(gb.uid,-1) as booked_by,
+	   IF(gb.isTrial=1,1,0) as isTrialClass,
+	   IFNULL(gb.bid,-1) as bid
+           from {users} u , {divine_time_slot} dt,
+	   {divine_guru_availability} ga
+	   LEFT JOIN {divine_guru_booking} gb ON ga.aid=gb.aid
+	   where ga.uid=u.uid and ga.sid=dt.sid 
+	   and u.uid=%d and 
+	   (ga.dated >=DATE_ADD('%s',INTERVAL -1 DAY) and ga.dated<=DATE_ADD('%s',INTERVAL +1 DAY))
+           ";
+   $db_result = db_query($query,$gid,$monday_date,$sunday_date);
+  
+
+
+  $existing_records=array();
+  $availableArray = array();
+  while ($row = db_fetch_object($db_result)) {
+
+    if($timezone_name!=''){
+       @date_default_timezone_set($timezone_name); //to suppress warnings for not supported timezones
+    }
+    $startDt1 = date('g:ia',$row->start_timestamp);
+    $endDt1   = date('g:ia',$row->end_timestamp);
+    $startDt  = date('Y-m-d',$row->start_timestamp);
+    $endDt    = date('Y-m-d',$row->end_timestamp-1);
+ 
+    if(($startDt == $dated) and ($endDt == $dated)){
+     if($row->isAvailable==1){
+       $availableArray[] = array('id'=>$row->start_timestamp,'name'=>$startDt1.'---'.$endDt1);
+     }
+     else if($row->isAvailable == 0 and $row->isTrialClass == 0 and $row->booked_by == $uid){ // if booked by this user himself and not a trial class
+       $availableArray[] = array('id'=>$row->start_timestamp,'name'=>$startDt1.'---'.$endDt1);
+     }
+      /*
+      $existing_records[] =array(
+                                $row->aid,
+				$startDt,
+				$endDt,
+				$row->isAvailable,
+				$row->booked_by,
+				$row->isTrialClass,
+				$row->bid,
+				$row->sid
+			      );
+     */
+     }
+  }
+
+  die(json_encode($availableArray));
+}
+
+
+/**
+ * This function is used for displaying guru's profile
+ */
+function fetch_guru_profile(){
+  global $base_url;
+
+  $gid = trim($_POST['gid']);
+  if($gid==''){
+    die('Invalid input specified');
+  }
+
+  $userArray = user_load($gid);
+
+  $width='100px';
+  
+  $profile_image_path=$userArray->picture;
+  if(file_exists($profile_image_path)){
+    $profile_image = '<img src="'.$base_url.'/'.$userArray->picture.'" />';
+    $dimension=variable_get('user_picture_dimensions','');
+    $dimension_array=explode('x',$dimension);
+    $width=$dimension_array[0].'px';
+  }
+  else{
+     $profile_image = '<img src="'.$base_url.'/sites/default/noimage.png" />';
+  }
+  if(intval($userArray->profile_inst_dob['month'])<10){
+    $userArray->profile_inst_dob['month']= '0'.$userArray->profile_inst_dob['month'];
+  }
+  if(intval($userArray->profile_inst_dob['day'])<10){
+    $userArray->profile_inst_dob['day']= '0'.$userArray->profile_inst_dob['day'];
+  }
+  $dob = $userArray->profile_inst_dob['year'].'-'.$userArray->profile_inst_dob['month'].'-'.$userArray->profile_inst_dob['day'];
+  $dob = strtotime($dob);
+  if(!$dob){
+    $dob = '---';
+  }
+  else {
+   $dob = date("d M, Y",$dob);
+   }
+   $userArray->profile_inst_desc = trim($userArray->profile_inst_desc)!=''?trim($userArray->profile_inst_desc):'---';
+   $userArray->profile_inst_certification = trim($userArray->profile_inst_certification)!=''?trim($userArray->profile_inst_certification):'---';
+   $userArray->profile_inst_yoga_style = trim($userArray->profile_inst_yoga_style)!=''?trim($userArray->profile_inst_yoga_style):'---';
+   $userArray->profile_inst_teaching_exp = trim($userArray->profile_inst_teaching_exp)!=''?trim($userArray->profile_inst_teaching_exp).' years':'---';
+
+  $profileString =
+  '<table border="0" cellpadding="0" cellspacing="0">
+  <tr>
+   <td align="left"><h1>Profile of '.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.'</h1></td>
+  </tr>
+   <tr>
+    <td>
+     <table border="1" cellpadding="0" cellspacing="0">
+       <tr>
+         <td rowspan="2" width="15%">'.$profile_image.'</td>
+         <td width="11%">Name:</td>
+         <td>'.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.'</td>
+       </tr>
+       <tr>
+        <td>DOB:</td>
+        <td>'.$dob.'</td>
+       </tr>
+       <tr>
+        <td>About Me:</td>
+        <td colspan="2" style="word-break:break-all; word-wrap: break-word;">
+	  <div id="code">'.$userArray->profile_inst_desc.'</div>
+	</td>
+       </tr>
+      </table>
+	</td>
+   </tr>
+   <tr>
+   <td>
+    <table border="1" cellpadding="0" cellspacing="0" width="100%">
+	 <tr>
+	  <td>Certifications:</td>
+	  <td colspan="3">'.$userArray->profile_inst_certification.'</td>
+	 </tr>
+	 <tr>
+	  <td>Yoga Style:</td>
+	  <td>'.$userArray->profile_inst_yoga_style.'</td>
+	  <td>Teaching Experience:</td>
+	  <td>'.$userArray->profile_inst_teaching_exp.'</td>
+	 </tr>
+	</table>
+	</td>
+   </tr>
+  </table>';
+
+  echo $profileString;
+  return;
+}
+?>
