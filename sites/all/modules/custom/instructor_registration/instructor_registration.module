@@ -71,7 +71,8 @@ function user_instructor_register_form() {
 	);
 	$form[term]['term_check'] = array(
 		'#type' => 'checkbox',
-		'#title' => t('<span title="This field is required." class="form-required">*</span> I have read and accepted the above Terms & Conditions and the information submitted by me is true and complete to the best of my knowledge.'),
+		'#title' => t('<span title="This field is required." class="form-required">*</span>'),
+		'#description' => t('<div style="font-size:12px;">I have read and accepted the above Terms & Conditions and the information submitted by me is true and complete to the best of my knowledge.</div>'),
 		'#size' => 10,
 	);
 
@@ -88,9 +89,15 @@ function user_instructor_register_form() {
  */
  
 function user_instructor_register_form_validate($form, &$form_state) { 
+
 	user_module_invoke('validate', $form_state['values'], $form_state['values'], 'account');
-	if(!is_numeric($form_state['values']['profile_inst_phone']) && !empty($form_state['values']['profile_inst_phone'])){
+	$phoneStr = $form_state['values']['profile_inst_phone'];
+	$phoneL = strlen($phoneStr);
+	if(!is_numeric($phoneStr) && !empty($phoneStr)){
 		form_set_error('profile_inst_phone', 'Phone number should be numeric');
+	}	
+	if(($phoneL > '10')){
+		form_set_error('profile_inst_phone', 'Phone number should be less than 11 digit');
 	}	
 	if(!$form_state['values']['term_check']){
 		form_set_error('term_check', 'Please check terms & conditions');
@@ -184,15 +191,16 @@ function instructor_registration_user($op, &$edit, &$account, $category = NULL){
  * Implementation of hook_form_alter
 */
 function instructor_registration_form_alter(&$form, &$form_state, $form_id){
-
+	//echo "<pre>";print_r($form);exit;
 	global $user;
 	$account  = user_load(arg(1));
 	
 	if($form_id=='user_register'){
 		if(empty($user->uid)){
-			$form[personal_info] = profile_form_profile($edit, $user, 'Personal Information', $register = FALSE);
+			//$form[personal_info] = profile_form_profile($edit, $user, 'Personal Information', $register = FALSE);
 		}
 		//unset($form['timezone']);
+		/*
 		$options = fetch_timezone();
 		$form['user_timezone'] = array(
 			'#type' => 'select',
@@ -201,9 +209,14 @@ function instructor_registration_form_alter(&$form, &$form_state, $form_id){
 			'#options' => $options,
 			'#weight' => 10,
 		);		
+		*/
 	}
 	
 	if($form_id=='user_profile_form'){
+		$thisAccountsRole = getUsersUniqueRole($user->uid);
+		if($thisAccountsRole!='expert'){
+			unset($form['locations']);
+		}	
 		unset($form['timezone']);
 		$options = fetch_timezone();
 		$form['user_timezone'] = array(
@@ -216,7 +229,15 @@ function instructor_registration_form_alter(&$form, &$form_state, $form_id){
 	}
 	if($form_id=='user_instructor_register_form'){
 		$form['instructor_info']['Instructor information']['profile_inst_salutation']['#type']='radios';
+		$form['instructor_info']['Instructor information']['profile_inst_yoga_style']['#multiple'] = "multiple";
 		unset($form['instructor_info']['Instructor information']['profile_inst_desc']);
+		unset($form['instructor_info']['Instructor information']['profile_inst_dob']);
+		/*
+		$form['instructor_info']['Instructor information']['profile_inst_dob']['#process'] = array('custom_date');
+  //$form['instructor_info']['Instructor information']['profile_inst_dob']['#default_value'] = array('0' => 'Month', '0' => 'Day', '0' => 'Year');		
+		*/
+		
+		//echo "<pre>";print_r($form);exit;
 	}
 }
 
@@ -286,5 +307,15 @@ function getNodeId($url_alias){
 	$src = db_result(db_query("SELECT src from url_alias WHERE dst='%s'", $url_alias));
 	$nidArr = explode('/',$src);
 	return $nidArr['1'];
+}
+
+
+
+function custom_date($element) {
+  $output = expand_date($element);
+  $output['day']['#options'] = array('0' => 'Day')+$output['day']['#options'];
+  $output['month']['#options'] = array('0' => 'Month')+$output['month']['#options'];
+  $output['year']['#options'] = array('0' => 'Year')+drupal_map_assoc(range(1900, (date('Y') + 14)));
+  return $output;
 }
 ?>

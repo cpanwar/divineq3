@@ -185,13 +185,13 @@ function enter_availability_form($month_counter=0,$error='') {
     $day_of_week = date('D', $first_day) ; 
 
     switch($day_of_week){ 
-     case "Sun": $blank = 0; break; 
-     case "Mon": $blank = 1; break; 
-     case "Tue": $blank = 2; break; 
-     case "Wed": $blank = 3; break; 
-     case "Thu": $blank = 4; break; 
-     case "Fri": $blank = 5; break; 
-     case "Sat": $blank = 6; break; 
+     case "Sun": $blank = 6; break; 
+     case "Mon": $blank = 0; break; 
+     case "Tue": $blank = 1; break; 
+     case "Wed": $blank = 2; break; 
+     case "Thu": $blank = 3; break; 
+     case "Fri": $blank = 4; break; 
+     case "Sat": $blank = 5; break; 
    }
 
    $days_in_month = cal_days_in_month(0, $month, $year) ;
@@ -199,9 +199,14 @@ function enter_availability_form($month_counter=0,$error='') {
    $table_string='';
     $table_string ="<table border='1' width='294'>";
     $table_string .="<tr><td colspan='7' align='center'><b> $title $year </b></td></tr>";
+    /*
     $table_string .= "<tr><td width='42' align='center'>Sun</td><td width='42' align='center'>Mon</td><td 
          width='42' align='center'>Tue</td><td width='42' align='center'>Wed</td><td width='42' align='center'>Thu</td><td 
 	 width='42' align='center'>Fri</td><td width='42' align='center'>Sat</td></tr>";
+    */
+    $table_string .= "<tr><td width='42' align='center'>Mon</td><td width='42' align='center'>Tue</td><td 
+         width='42' align='center'>Wed</td><td width='42' align='center'>Thu</td><td width='42' align='center'>Fri</td><td 
+	 width='42' align='center'>Sat</td><td width='42' align='center'>Sun</td></tr>";
  
   $day_count = 1;
 
@@ -524,9 +529,10 @@ function save_availability(){
   /*CHECK CLASHING WITH BOOKING.*/
 
    /*FETCH RECORDS FROM AVAILIBILITY TABLE WHICH ARE BOOKED BY NORMAL USERS*/
-   $query="select ga.sid,ga.isAvailable,s.name
-           from {divine_guru_availability} ga, {divine_time_slot} s 
-	   where ga.sid=s.sid and ga.uid=%d and ga.dated='%s'";
+   $query="select ga.sid,ga.isAvailable,ga.start_timestamp,ga.end_timestamp,s.name,tz.timezone
+           from {divine_guru_availability} ga, {divine_time_slot} s ,{divine_timezone} tz
+	   where ga.sid=s.sid and ga.uid=%d and ga.dated='%s'
+	   and ga.tid=tz.tid";
      
    $db_result = db_query($query,$uid,$selected_date);
 
@@ -536,12 +542,20 @@ function save_availability(){
    while ($row = db_fetch_object($db_result)) {
       if($row->isAvailable=='0'){
         $booked_records[] = $row->sid;
-	$sid_name_array[$row->sid]=$row->name;
+	$tzName = trim($row->timezone);
+	if($tzName!=''){
+	  @date_default_timezone_set($tzName);
+	}
+	$sid_name_array[$row->sid] = date("g:ia",$row->start_timestamp).'---'.date("g:ia",$row->end_timestamp);;
+	//$sid_name_array[$row->sid] = $row->name;
       }
       else{
         $not_booked_records[] = $row->sid;
       }
    }
+
+   //set timezone to UTC
+   date_default_timezone_set("UTC");
    
    $booked_count=count($booked_records);
 
@@ -610,6 +624,7 @@ function save_availability(){
 
   //set timezone to UTC
   date_default_timezone_set("UTC");
+  $presentTimeStamp = time();
 
   /*BUILD INSERT QUERY*/
   
@@ -642,18 +657,26 @@ function save_availability(){
 
        $start_timestamp=strtotime(date($selected_date.' '.$start_time)) ;
        $end_timestamp=strtotime(date($selected_date.' '.$end_time));
-
-       $start_timestamp = $start_timestamp-0;
-       $end_timestamp   = $end_timestamp-0;
-
+       
        if($timezone_name!=''){
         @date_default_timezone_set($timezone_name); //to suppress warnings for not supported timezones
        }
        $current_date_time = $selected_date.' 23:59';
+       $current_date_time2 = $selected_date.' 00:00';
        if($start_timestamp > strtotime($current_date_time) and $end_timestamp > strtotime($current_date_time)){
          $start_timestamp = $start_timestamp - 24*60*60;
 	 $end_timestamp   = $end_timestamp - 24*60*60;
        }
+       else if($start_timestamp < strtotime($current_date_time2) and $end_timestamp < strtotime($current_date_time2)){
+         $start_timestamp = $start_timestamp + 24*60*60;
+	 $end_timestamp   = $end_timestamp + 24*60*60;
+       }
+
+       //Do not allow to enter value whose time is smaller than current date and time.
+       if($start_timestamp < $presentTimeStamp){
+         die("You can not select ( ".date("h:ia",$start_timestamp).'---'.date("h:ia",$end_timestamp). " ) time slot as it is smaller than current time.");
+       }
+
        /*
         $start_timestamp=strtotime(date($selected_date.' '.$start_time)) + $adjusted_time;
         $end_timestamp=strtotime(date($selected_date.' '.$end_time)) + $adjusted_time;
@@ -714,6 +737,7 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
 
   //set timezone to UTC
   date_default_timezone_set("UTC");
+  $presentTimeStamp = time();
 
   /*
   if(!is_numeric($week_counter) or $week_counter>52 or $week_counter<0){
@@ -801,7 +825,7 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
 
   if($bookedByUserid==''){ //when guru himself views the time slots
    /*FETCH RECORDS FROM AVAILIBILITY TABLE*/
-   $query="select ga.uid,ga.sid,ga.dated,ga.isAvailable
+   $query="select ga.uid,ga.sid,ga.dated,ga.isAvailable,ga.start_timestamp
           from {divine_guru_availability} ga, {users} u , {divine_time_slot} dt
 	  where ga.uid=u.uid and ga.sid=dt.sid 
 	  and u.uid=%d and (ga.dated >='%s' and ga.dated <='%s')";
@@ -810,7 +834,7 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
   }
   else{ //when member user view guru's time slots
     /*FETCH RECORDS FROM AVAILIBILITY TABLE*/
-   $query="select ga.uid,ga.sid,ga.dated,ga.isAvailable,gb.uid as booked_by
+   $query="select ga.uid,ga.sid,ga.dated,ga.isAvailable,ga.start_timestamp,gb.uid as booked_by
           from {users} u , {divine_time_slot} dt,
 	  {divine_guru_availability} ga
 	  LEFT JOIN {divine_guru_booking} gb ON ga.aid=gb.aid
@@ -824,10 +848,12 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
   $existing_records=array();
   $availabilityArray=array();
   $bookeByArray=array();
+  $timeStampArray = array();
   while ($row = db_fetch_object($db_result)) {
     $existing_records[] = $row->uid.'-'.$row->sid.'-'.$row->dated;
     $availabilityArray[$row->uid.'-'.$row->sid.'-'.$row->dated] = $row->isAvailable;
     $bookeByArray[$row->uid.'-'.$row->sid.'-'.$row->dated] = $row->booked_by;
+    $timeStampArray[$row->uid.'-'.$row->sid.'-'.$row->dated] = $row->start_timestamp;
   }
   
   //echo '<pre>';
@@ -875,7 +901,6 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
   $query="select sid,name,start_time,end_time from {divine_time_slot}";
      
   $db_result = db_query($query);
-
   $rows=array();
   $flag=false;
   while ($row = db_fetch_object($db_result)) {
@@ -892,10 +917,20 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
           $key=$gid.'-'.$slotid.'-'.date("Y-m-d",$temp_timestamp);
 	 
 	  $style='style="background-color:#e5e5e5"';
-	  
+
+	  //adjust slot name according to user's time zone
+	  $dt=date("Y-m-d",$temp_timestamp);
+	  $startTimeStamp=strtotime(date($dt.' '.$start_time))+$adjusted_time;
+	  $endTimeStamp=strtotime(date($dt.' '.$end_time))+$adjusted_time;
+
 	  if(in_array($key,$existing_records)){
 	    if($availabilityArray[$key]=='1'){
-             $style='style="background-color:#80ff80"';
+	     if($timeStampArray[$key] < $presentTimeStamp){ // PAST/OLD Records
+              $style='style="background-color:#f9ff88"';
+	     }
+	     else{
+	      $style='style="background-color:#80ff80"';
+	     }
 	    }
 	    else{
 	     if($bookedByUserid!=''){
@@ -912,10 +947,7 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
 	    }
 	  }
           
-	  //adjust slot name according to user's time zone
-	  $dt=date("Y-m-d",$temp_timestamp);
-	  $startTimeStamp=strtotime(date($dt.' '.$start_time))+$adjusted_time;
-	  $endTimeStamp=strtotime(date($dt.' '.$end_time))+$adjusted_time;
+	  
 
 	  $slotname=date("g:ia",$startTimeStamp).'---'.date("g:ia",$endTimeStamp);
           $current_date_time = date($dt.' 23:59');
@@ -925,8 +957,6 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
 	    continue;
 	  }
           
-	  
-
 	  $tableString .= '<td '.$style.' align="center">'.$slotname.'</td>';
           $temp_timestamp=strtotime("+1 day",$temp_timestamp);  
       }
@@ -958,6 +988,23 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
 		   </tr>';
   */
 
+  $legendsTable ='<table border="1" cellpadding="0" cellspacing="0" width="100%">
+		   <tr>
+		    <td align="left" colspan="6"><b>Legends : </b></td>
+		   </tr>
+		   <tr>
+		    <td align="left" style="width:10%"><b>Available :</b></td>
+			<td style="background-color:#80ff80;width:80px;">&nbsp;</td>
+			<td align="left" style="padding-left:5px;width:5%" nowrap><b>Past :</b></td>
+		         <td style="background-color:#f9ff88;width:80px;">&nbsp;</td>
+			<td align="right" style="padding-left:5px;width:10%"><b>Booked :</b></td>
+			<td style="background-color:#ff3535;width:80px;">&nbsp;</td>
+			<td align="right" style="padding-left:5px;width:10%"><b>Unavailable :</b></td>
+			<td style="background-color:#d3d3d3;width:80px;">&nbsp;</td>
+		   <tr>
+		  </table>';
+
+  $tableString .= '<tr><td colspan="8" align="left">'.$legendsTable.'</td></tr>';
   $tableString .= '</table>';
 
   return $navaigation_string.$tableString.$navaigation_string;

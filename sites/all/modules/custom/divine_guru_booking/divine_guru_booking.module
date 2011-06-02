@@ -777,6 +777,15 @@ function check_guru_availability(){
   $cdateArray=explode('/',$cdate);
   $cdate=$cdateArray[2].'-'.$cdateArray[0].'-'.$cdateArray[1];
 
+  date_default_timezone_set("UTC");
+
+  $presentTimeStamp = time();
+  /**DO NOT SAVE TIME WHICH IS SMALLER THAN CURRENT TIME**/
+  if($classTime < $presentTimeStamp){
+     echo '4';
+     return;
+  }
+
   //echo $cdate.'---'.$currentDate;
 
   if(strtotime($cdate)<strtotime($currentDate)){
@@ -884,7 +893,8 @@ function save_booking(){
   $uid=$user->uid;
   
   $userArray = user_load($uid);
-  $booked_by_user_name = $userArray->profile_inst_fname.' '.$userArray->profile_inst_lname;
+  //$booked_by_user_name = $userArray->profile_inst_fname.' '.$userArray->profile_inst_lname;
+  $booked_by_user_name = $userArray->name;
 
   $dataarray=trim($_POST['arr']);
   $cnt=count($dataarray);
@@ -1032,6 +1042,10 @@ if($isTrialClassCount==0){
  $mailData='';
  $mailCounter = 1;
 
+ //set timezone to UTC
+ date_default_timezone_set("UTC");
+ $currentDateTimeStamp = strtotime(date('Y-m-d'));
+
  if($ebid==''){ // if it is addition operation , then perform status updation
      $remaining_class = 0;
      $query = "select (classes_left-$cnt) as remaining_class from {divine_user_package_status} where uid=%d and packageid=%d";
@@ -1075,11 +1089,15 @@ if($isTrialClassCount==0){
      }
  }
 
- 
+ //Setting it to Default Time Zone
+ date_default_timezone_set("UTC");
+ $presentTimeStamp = time();
+
  for($i=0; $i<$cnt; $i++){
 
    //Setting it to Default Time Zone
-    date_default_timezone_set("UTC");
+   date_default_timezone_set("UTC");
+
 
    $classCounter++;
   
@@ -1090,6 +1108,13 @@ if($isTrialClassCount==0){
    $classDate=trim($tArray[3]);
    $classDateArray=explode('/',$classDate);
    $classDate=$classDateArray[2].'-'.$classDateArray[0].'-'.$classDateArray[1];
+
+
+   /**DO NOT SAVE TIME WHICH IS SMALLER THAN CURRENT TIME**/
+    if($classTime < $presentTimeStamp){
+      echo 'err:1!$@$!*!$@$!err_type:4!$@$!*!$@$!err_counter:'.$classCounter;
+      return;
+    }
 
 
    /*CHECK WHETHER SELECTED GURU IS AVAILABLE OR NOT (FOR +/- 1 DAYS)*/
@@ -1177,6 +1202,10 @@ if($isTrialClassCount==0){
    }
 
    for($i=0; $i<$cnt; $i++){
+     
+     //Setting it to Default Time Zone
+     date_default_timezone_set("UTC");
+
      //insert into booking table
      $bArray=$bookingArray[$i];
 
@@ -1199,9 +1228,11 @@ if($isTrialClassCount==0){
      }
 
      /*CODE FOR MAIL*/
-     $query="SELECT u.uid,u.mail,t.name as slot_name,a.dated as booking_date
-             from {users} u, {divine_guru_availability} a , {divine_time_slot } t
-	     where u.uid=a.uid and a.sid=t.sid and a.aid=%d";
+     $query="SELECT u.uid,u.mail,
+             a.dated as booking_date,a.start_timestamp,a.end_timestamp,
+	     t.timezone
+             from {users} u, {divine_guru_availability} a , {divine_timezone } t
+	     where u.uid=a.uid and a.tid=t.tid and a.aid=%d";
      $db_result = db_query($query,$availabilityArray[$i]);
 
      while ($row = db_fetch_object($db_result)) {
@@ -1210,7 +1241,14 @@ if($isTrialClassCount==0){
 	if($mailData!=''){
 	  $mailData .='<br/>';
 	}
-	$mailData .= $mailCounter. ". ".date("d M, Y",strtotime($row->booking_date))." in ( ".$row->slot_name." ) time slot .";
+
+        $timezone = trim($row->timezone);
+	if($timezone!=''){
+         @date_default_timezone_set($timezone);
+	}
+        
+
+	$mailData .= $mailCounter. ". ".date("d M, Y",$row->start_timestamp)." in ( ".date("h:ia",$row->start_timestamp).'---'.date("h:ia",$row->end_timestamp)." ) time slot .";
 	if($mail!=''){
 	  $userArray = user_load($mid);
 	  $guru_name =$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname;
@@ -1445,7 +1483,10 @@ function show_scheduled_classes($mode=1){
 function show_guru_availability_week_format_user_login($gid,$week_counter=0,$bookedByUserId,$timezoneId){
   
   //set timezone to UTC
-   date_default_timezone_set("UTC");
+  date_default_timezone_set("UTC");
+
+  $presentTimeStamp = time();
+
 
   $module_path=drupal_get_path('module', 'divine_guru_booking');
   //drupal_add_js($module_path.'/js/booking.js','module');
@@ -1503,7 +1544,7 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
   $dateWeekArray = array();
   while($temp_timestamp<=$sunday_date_timestamp){
        $dateWeekArray[]=$temp_timestamp;
-       $tableString .= '<td align="center"><b>'.t(date("Y-m-d",$temp_timestamp).'<br>'.date("d",$temp_timestamp).' '.date("M",$temp_timestamp).','.date("Y",$temp_timestamp)).'</td>';
+       //$tableString .= '<td align="center"><b>'.t(date("Y-m-d",$temp_timestamp).'<br>'.date("d",$temp_timestamp).' '.date("M",$temp_timestamp).','.date("Y",$temp_timestamp)).'</td>';
        $temp_timestamp=strtotime("+1 day",$temp_timestamp).'</b>';  
   }
 
@@ -1591,7 +1632,7 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
     $tableString .= '<td>'; 
     $tableString .= '<table border="1" cellpadding="0" cellspacing="0" class="timeslot_tables" '.$borderStyle.'>';
     $tableString .= '<tr>
-                         <td align="center"><b>'.date("d M,Y",$dtv).'</b></td>
+                         <td align="center"><b>'.date("D",$dtv).'<br/>'.date("d M,Y",$dtv).'</b></td>
 		     </tr>';
 
     foreach($slotArray as $slots){
@@ -1639,8 +1680,15 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
       if(in_array($ts,$existingRecords)){
         $isAvailable = $availabilityArray[$ts];
 	if($isAvailable==1){
-	  $style = 'style="background-color:#80ff80"';
-          $title = 'title="This time slot is available."';
+	 if($ts < $presentTimeStamp){  // for PAST / OLD records
+	   $style = 'style="background-color:#f9ff88"';
+           $title = 'title="This time slot is unavailable."';
+	   //text-decoration:line-through
+	 }
+         else{
+	   $style = 'style="background-color:#80ff80"';
+           $title = 'title="This time slot is available."';
+	 }
 	}
 	else{
 	  $bookedBy = $bookedByArray[$ts];
@@ -1661,6 +1709,29 @@ function show_guru_availability_week_format_user_login($gid,$week_counter=0,$boo
     $tableString .= '</td>';
   }
   $tableString .= '</tr>';
+
+  $tableString .='<tr>
+                      <td align="left" colspan="7" width="100%">
+		       <table border="0">
+		        <tr>
+		         <td align="left" colspan="7"><b>Legends : </b></td>
+		        </tr>
+			<tr>
+		         <td align="left" style="width:7%" nowrap><b>Available :</b></td>
+		         <td style="background-color:#80ff80;width:60px;">&nbsp;</td>
+			 <td align="left" style="padding-left:5px;width:4%" nowrap><b>Past :</b></td>
+		         <td style="background-color:#f9ff88;width:60px;">&nbsp;</td>
+			 <td align="right" style="padding-left:5px;width:7%" nowrap><b>Booked :</b></td>
+		         <td style="background-color:#ff3535;width:60px;">&nbsp;</td>
+			 <td align="right" style="padding-left:5px;width:10%" nowrap><b>Booked by You:</b></td>
+		         <td style="background-color:#80e1ec;width:60px;">&nbsp;</td>
+			 <td align="right" style="padding-left:5px;width:10%" nowrap><b>Unavailable :</b></td>
+		         <td style="background-color:#d3d3d3;width:60px;">&nbsp;</td>
+		        <tr>
+		       </table>
+		      </td>
+		  </tr>';
+
   $tableString .= '</table>';
  
   $userArray= user_load($gid);
@@ -1805,6 +1876,7 @@ function fetch_guru_available_timeslots(){
 
   $existing_records=array();
   $availableArray = array();
+  $presentTimeStamp = time();
   while ($row = db_fetch_object($db_result)) {
 
     if($timezone_name!=''){
@@ -1816,6 +1888,11 @@ function fetch_guru_available_timeslots(){
     $endDt    = date('Y-m-d',$row->end_timestamp-1);
     if($endDt1 == '12:00am'){
       $endDt1 = '11:59pm';
+    }
+
+    /**DO NOT SHOW TIME WHICH IS SMALLER THAN CURRENT TIME**/
+    if($row->start_timestamp < $presentTimeStamp){
+      continue;
     }
  
     if(($startDt == $dated) and ($endDt == $dated)){
