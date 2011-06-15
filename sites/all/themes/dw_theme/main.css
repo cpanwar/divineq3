@@ -1,0 +1,28 @@
+/* CSS Document */
+#main .content P{ font: 12px/21px verdana; text-align:justify; margin:0px; padding:3px 0 3px 0px;color:#6F6F6F; word-spacing:1px;}
+#main .content spam{font-weight:bold; color:#6F6F6F; word-spacing:1px;}
+#main .content ul.insidecontent {list-style-type:none; margin:0px; padding:0px;color:#6F6F6F; word-spacing:1px; text-align:left; }
+#main .content li.insidecontent {margin:0;font: 12px/21px verdana; padding:0; list-style:none; padding:0 0 0 28px; line-height:22px;background:url(images/arrow.jpg) no-repeat 0 2px;}
+#main .content a{color:#40acc6; text-decoration:none; }
+#main .content a:hover{text-decoration:underline; color:#FF9D1A;}
+#main .content th{	 padding-top:4px; padding-bottom:4px; text-align:center; font-family:verdana; font-size:12px;color:#6F6F6F; word-spacing:1px;}
+#main .content td{ word-spacing:1px;}
+#main .content .uu{background:url(images/arrow.jpg) no-repeat 103px 2px;}	
+#main .content .slok{font-weight:bold; font-size:12px; color:#40acc6; font-family:Verdana; font-style:italic; padding-bottom:5px; word-spacing:1px;}
+#main .content .slok-foot{text-align:right; font-weight:bold;color:#6F6F6F; word-spacing:1px;}
+#main .content .promotion{font:12px/18px verdana; font-weight:bold; border-top:1px solid #E0E0E0; text-align:justify; margin:5px; padding:5px 5px 0 5px; color:#40acc6; word-spacing:1px;}
+#main .content .promotion p{ font-weight:bold; padding:0 0 10px 0;color:#40acc6;}
+#main .content .ttitle{font-style:italic; padding:5px 0 5px 0; font-weight:bold;color:#6F6F6F;}
+#main .content a.promotion1{color:#40acc6; text-decoration:underline; font-style:normal;font-weight:bold;}
+#main .content a.promotion1:hover{text-decoration:none;font-weight:bold; color:#FF9D1A;}
+#main .content a.link{color:#40acc6; text-decoration:none; font-style:normal;}
+#main .content a.link:hover{text-decoration:underline;font-weight:normal; color:#FF9D1A;}
+#main .content .bbold{font-weight:bold;}
+#main .content .td1{border-bottom:1px solid #E0E0E0; border-left:1px solid #E0E0E0; border-right:1px solid #E0E0E0; font: 12px/22px verdana; vertical-align:top; text-align:center;color:#6F6F6F; word-spacing:1px;}
+#main .content .td2{border-bottom:1px solid #E0E0E0; border-right:1px solid #E0E0E0; font: 12px/22px verdana; vertical-align:top; text-align:center;color:#6F6F6F;}
+#main .content .th1{border:1px solid #E0E0E0; background-color:#EFEFEF; text-align:center; vertical-align:top;color:#6F6F6F;}
+#main .content .th2{border-bottom:1px solid #E0E0E0; border-right:1px solid #E0E0E0; border-top:1px solid #E0E0E0; text-align:center; vertical-align:top; background-color:#EFEFEF;color:#6F6F6F;}
+#main .content .th11{border:1px solid #E0E0E0; background-color:#EFEFEF; text-align:left; vertical-align:top; padding-left:10px;color:#6F6F6F;}
+#main .content .th22{border-bottom:1px solid #E0E0E0; border-left:1px solid #E0E0E0; border-right:1px solid #E0E0E0; background-color:#EFEFEF; text-align:left; width:160px; vertical-align:top; padding-left:10px;color:#6F6F6F;}
+#main .content .td11{border-top:1px solid #E0E0E0;border-right:1px solid #E0E0E0;border-bottom:1px solid #E0E0E0; font: 12px/22px verdana; vertical-align:top; text-align:center;color:#6F6F6F;}
+.td22{border-bottom:1px solid #E0E0E0; border-right:1px solid #E0E0E0; font: 12px/22px verdana; vertical-align:top; text-align:center;color:#6F6F6F;}

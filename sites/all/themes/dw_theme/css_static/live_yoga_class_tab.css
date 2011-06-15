@@ -1,0 +1,530 @@
+.howtxt{
+color:#40AAC6;
+font-weight:bold;
+line-height:normal;
+font-family:verdana;
+font-size:15px;
+width:380px;
+margin:25px 0 0 0;
+float:left;
+}
+.howtxt ul{
+    margin:15px 0 0 0;
+    padding:0;
+}
+.howtxt li{
+    list-style:none;
+    background:url(../images/logoBullet.gif) no-repeat left top;
+    font:normal 13px verdana, Helvetica, sans-serif;
+    color:#666666;
+    padding:0 0 10px 30px;
+    text-align:justify;
+    text-transform: none;
+}   
+.imgLive{
+    float:right;
+    width:185px;
+    height:166px;
+    margin:30px 0 0 0;
+}
+.imgLiveLeft{
+    float:left;
+    width:185px;
+    height:160px;
+    margin:30px 0 0 0;
+}
+.head-23{
+color:#40AAC6;
+font:bold 16px Arial, Helvetica, sans-serif; 
+}
+.howtxtLeft{
+color:#40AAC6;
+font-weight:bold;
+font-family:verdana;
+line-height:normal;
+font-size:15px;
+width:380px;
+margin:25px 0 0 0;
+float:right;
+
+}
+.howtxtLeft ul{
+    margin:15px 0 0 0;
+    padding:0;
+}
+.howtxtLeft li{
+    list-style:none;
+    background:url(../images/logoBullet.gif) no-repeat left top;
+    font:normal 13px verdana, Helvetica, sans-serif;
+    color:#666666;
+    padding:0 0 10px 30px;
+    text-align:justify;
+    text-transform: none;
+}
+
+
+/* community section classes/IDs */                 
+.communityNew{
+        float:left;
+        width:585px;
+        font-family:Verdana, Arial, Helvetica, sans-serif;
+        color:#797B8E;
+
+        
+}
+
+.communityNew .comunity-heading-text{
+        font-family: "Trebuchet MS" , Verdana, Arial, Helvetica, sans-serif;
+        font-size:16px;
+        color:#797B8E;
+        padding-left:4px;
+        line-height:30px;
+}
+
+.communityNew .comunity-tab{
+        /*background: url(../images/left-curve.jpg) no-repeat left;*/
+        /*background: url(../../images/bg-tab.jpg) repeat-x !important;*/
+        background:url(../images/tab-bg.gif) repeat-x;                   
+        font-family:Verdana, Arial, Helvetica, sans-serif;
+        font-size:12px;
+        color:#797B8E;
+        line-height:30px;
+        height:39px;
+        /*border:red solid 1px;*/
+        }
+
+.communityNew .comunity-tab ul{
+width:578px;
+/*background: url(../images/right-curve.jpg) no-repeat right;*/
+font-family:Verdana, Arial, Helvetica, sans-serif;
+font-size:12px;
+color:#797B8E;
+line-height:39px;
+}
+
+.communityNew .comunity-tab ul li{
+/*background: url(../images/bg-tab.jpg) repeat-x;*/
+float:left;
+font-family: "Trebuchet MS", Verdana, Arial, Helvetica, sans-serif;
+font-size:20px;
+color:#545754;
+line-height:39px;
+height:39px;
+list-style-type:none;
+background:url(../images/divider.gif) no-repeat !important;
+
+}
+.communityNew .comunity-tab ul li a{
+font-family: "Trebuchet MS", Verdana, Arial, Helvetica, sans-serif;
+font-size:20px;
+color:#797B8E;
+line-height:39px;
+text-decoration:none;
+padding:0px 23px;
+}
+.communityNew .comunity-tab ul li a:hover{
+/*background: url(../images/tabbgon.gif) repeat-x !important;*/
+background:url(../images/tab-Active.gif) repeat-x !important;
+font-family: "Trebuchet MS", Verdana, Arial, Helvetica, sans-serif;
+font-size:20px;
+color:#000;
+line-height:39px;
+height:39px;
+display:block;
+text-decoration:none;
+}
+.communityNew .comunity-tab-container{
+width:585px;
+/*background:url(../assets/static/images/bg-tab-container.jpg) repeat-x;*/
+/*height:134px;*/
+font-family: Verdana, Arial, Helvetica, sans-serif;
+/*font-size:20px;*/
+color:#000;
+/*line-height:39px;*/
+text-decoration:none;
+padding-top:20px;
+}
+.n-links{
+    font:bold 12px Arial, Helvetica, sans-serif !important;
+    color:#696969;
+}
+.n-links a{
+    color:#696969;
+    padding-right:25px;
+}
+.n-links a:hover{
+    text-decoration:none;
+}
+.communityNew .comunity-tab-container .left-section{
+float:right;
+margin-right:10px;
+/*margin-left:12px;*/
+}
+.communityNew .comunity-tab-container .right-section{
+float:left;
+color:#437794;
+width:350px;
+text-align:justify;
+margin:8px 0 0 0;
+}
+.sep 
+{
+width:2px !important;
+background:url(../images/divider.gif) repeat-y;
+
+}
+.communityNew .comunity-tab ul li a.tab-activen{
+color: #545754 !important;
+/*background: url(../images/tabbgon.gif) repeat-x;*/
+background:url(../images/tab-Active.gif) repeat-x;
+display:block;
+line-height:39px;
+height:39px;
+}
+
+.fixbox{
+    height:102px;
+    }
+    
+.communityNew .comunity-tab-container .right-section strong{
+color:#40AAC6;
+font-weight:bold;
+line-height:normal;
+font-size:15px;
+}
+
+.communityNew .comunity-tab-container .right-section p{
+color:#696969;
+font-family:verdana,Arial, Helvetica, sans-serif;
+font-size:12px;
+line-height:normal;
+margin:0px;
+padding:0px;
+padding-bottom:12px;
+}
+.communityNew .comunity-tab-container .right-section a{
+float:right;
+color:#696969;
+font-family:verdana,Arial, Helvetica, sans-serif;
+font-size:11px;
+line-height:normal;
+text-align:right;
+text-decoration:none;
+}
+
+.communityNew .comunity-tab-container .right-section a:hover{
+color:#437794;
+text-decoration:none;
+}
+
+/*css for live yoga classes landing*/
+
+.yogaclassContainer{
+width:585px;
+float:left;
+font-size:12px;
+text-align:justify;
+}
+.yogaclassContainer a{
+
+color:#40AAC6;
+
+}
+.yogaclassContainer .title{
+font:normal 30px "Trebuchet MS", Verdana, arial;
+color:#40AAC6;
+text-align:left;
+padding:0 0 3px 0;
+margin:0;
+}
+.yogaclassContainer .flashBox{
+height:160px;
+background:  url(../images/flashboxBG.gif) repeat-x left top;
+padding:10px;
+}
+.flashBox .Background{
+background: url(../images/flash-background.gif) no-repeat right bottom;
+width:300px;
+height:75px;
+float:right;
+font:normal 16px "Trebuchet MS", Verdana, arial;
+color:#3E3E3E;
+line-height:22px;
+height:160px;
+
+}
+.flashBox  .Background .subtitle{
+color:#5F5D5D;
+font:normal 24px "Trebuchet MS", Verdana, arial;
+padding:0;
+margin:0;
+}
+.flashBox .flashBanner{
+width:235px;
+height:145px;
+float:left;
+}
+.howtxt{
+color:#40AAC6;
+font-weight:bold;
+line-height:normal;
+font-family:verdana;
+font-size:15px;
+width:380px;
+margin:25px 0 0 0;
+float:left;
+}
+.howtxt ul{
+    margin:15px 0 0 0;
+    padding:0;
+}
+.howtxt li{
+    list-style:none;
+    background:url(../../images/logoBullet.gif) no-repeat left top;
+    font:normal 13px verdana, Helvetica, sans-serif;
+    color:#666666;
+    padding:0 0 10px 30px;
+    text-align:justify;
+    text-transform: none;
+}   
+.imgLive{
+    float:right;
+    width:185px;
+    height:166px;
+    margin:30px 0 0 0;
+}
+.imgLiveLeft{
+    float:left;
+    width:185px;
+    height:160px;
+    margin:30px 0 0 0;
+}
+.head-23{
+color:#40AAC6;
+font:bold 16px Arial, Helvetica, sans-serif; 
+}
+.howtxtLeft{
+color:#40AAC6;
+font-weight:bold;
+font-family:verdana;
+line-height:normal;
+font-size:15px;
+width:380px;
+margin:25px 0 0 0;
+float:right;
+
+}
+.howtxtLeft ul{
+    margin:15px 0 0 0;
+    padding:0;
+}
+.howtxtLeft li{
+    list-style:none;
+    background:url(../../images/logoBullet.gif) no-repeat left top;
+    font:normal 13px verdana, Helvetica, sans-serif;
+    color:#666666;
+    padding:0 0 10px 30px;
+    text-align:justify;
+    text-transform: none;
+}
+
+
+/* community section classes/IDs */                 
+.communityNew{
+        float:left;
+        width:585px;
+        font-family:Verdana, Arial, Helvetica, sans-serif;
+        color:#797B8E;
+
+        
+}
+
+.communityNew .comunity-heading-text{
+        font-family: "Trebuchet MS" , Verdana, Arial, Helvetica, sans-serif;
+        font-size:16px;
+        color:#797B8E;
+        padding-left:4px;
+        line-height:30px;
+}
+
+.communityNew .comunity-tab{
+        /*background: url(../images/left-curve.jpg) no-repeat left;*/
+        /*background: url(../images/bg-tab.jpg) repeat-x !important;*/
+        background:url(../images/tab-bg.gif) repeat-x;                   
+        font-family:Verdana, Arial, Helvetica, sans-serif;
+        font-size:12px;
+        color:#797B8E;
+        line-height:30px;
+        height:39px;
+        /*border:red solid 1px;*/
+        }
+
+.communityNew .comunity-tab ul{
+width:578px;
+/*background: url(../images/right-curve.jpg) no-repeat right;*/
+font-family:Verdana, Arial, Helvetica, sans-serif;
+font-size:12px;
+color:#797B8E;
+line-height:39px;
+}
+
+.communityNew .comunity-tab ul li{
+/*background: url(../images/bg-tab.jpg) repeat-x;*/
+float:left;
+font-family: "Trebuchet MS", Verdana, Arial, Helvetica, sans-serif;
+font-size:20px;
+color:#545754;
+line-height:39px;
+height:39px;
+list-style-type:none;
+background:url(../images/divider.gif) no-repeat !important;
+
+}
+.communityNew .comunity-tab ul li a{
+font-family: "Trebuchet MS", Verdana, Arial, Helvetica, sans-serif;
+font-size:20px;
+color:#797B8E;
+line-height:39px;
+text-decoration:none;
+padding:0px 23px;
+}
+.communityNew .comunity-tab ul li a:hover{
+/*background: url(../images/tabbgon.gif) repeat-x !important;*/
+background:url(../images/tab-Active.gif) repeat-x !important;
+font-family: "Trebuchet MS", Verdana, Arial, Helvetica, sans-serif;
+font-size:20px;
+color:#000;
+line-height:39px;
+height:39px;
+display:block;
+text-decoration:none;
+}
+.communityNew .comunity-tab-container{
+width:585px;
+
+font-family: Verdana, Arial, Helvetica, sans-serif;
+/*font-size:20px;*/
+color:#000;
+/*line-height:39px;*/
+text-decoration:none;
+padding-top:20px;
+}
+.n-links{
+    font:bold 12px Arial, Helvetica, sans-serif !important;
+    color:#696969;
+}
+.n-links a{
+    color:#696969;
+    padding-right:25px;
+}
+.n-links a:hover{
+    text-decoration:none;
+}
+.communityNew .comunity-tab-container .left-section{
+float:right;
+margin-right:10px;
+/*margin-left:12px;*/
+}
+.communityNew .comunity-tab-container .right-section{
+float:left;
+color:#437794;
+width:350px;
+text-align:justify;
+margin:8px 0 0 0;
+}
+.sep 
+{
+width:2px !important;
+background:url(../images/divider.gif) repeat-y;
+
+}
+.communityNew .comunity-tab ul li a.tab-activen{
+color: #545754 !important;
+
+background:url(../images/tab-Active.gif) repeat-x;
+display:block;
+line-height:39px;
+height:39px;
+}
+
+.fixbox{
+    height:102px;
+    }
+    
+.communityNew .comunity-tab-container .right-section strong{
+color:#40AAC6;
+font-weight:bold;
+line-height:normal;
+font-size:15px;
+}
+
+.communityNew .comunity-tab-container .right-section p{
+color:#696969;
+font-family:verdana,Arial, Helvetica, sans-serif;
+font-size:12px;
+line-height:normal;
+margin:0px;
+padding:0px;
+padding-bottom:12px;
+}
+.communityNew .comunity-tab-container .right-section a{
+float:right;
+color:#696969;
+font-family:verdana,Arial, Helvetica, sans-serif;
+font-size:11px;
+line-height:normal;
+text-align:right;
+text-decoration:none;
+}
+
+.communityNew .comunity-tab-container .right-section a:hover{
+color:#437794;
+text-decoration:none;
+}
+.tab-activen{color: #070B01 !important;}
+/* End community section classes/IDs */
+    
+.advanceBox{
+    loat:left; 
+    width:280px; 
+    margin-top:15px;
+}
+.advanceBox p{
+    font:normal 12px Verdana, Arial, Helvetica, sans-serif;
+    color:#666666;
+    text-align:justify;
+    padding:0 0 0 0;
+}
+.advanceBox Strong{
+    color:#40AAC6;
+    font:bold 15px Verdana, Arial, Helvetica, sans-serif;
+    padding:0 0 10px 0;
+}
+.tecnologyBox{
+    float:right; 
+    width:280px; 
+    margin-top:15px;
+    font:normal 12px Verdana, Arial, Helvetica, sans-serif;
+    color:#666666;
+}
+.tecnologyBox strong{
+    color:#40AAC6;
+    font:bold 15px Verdana, Arial, Helvetica, sans-serif;
+    padding:0 0 10px 0;
+}
+.tecnologyBox .grayBoxStyle{
+    border: #EBEBEB solid 1px;
+    background:#F7F8F8 url(../images/tecBoxBg.gif) repeat-x left top;
+    height:228px;
+    padding:0px 8px;
+}
+.listdata { background:#E3E2E2}
+.listdata th { background:#f1f1f1; text-align:left;}
+.listdata td { background:#ffffff}
+
+
+.thumb_vid {border:1px solid #cccccc; padding:3px; width:100px; margin:0 0 2px 0}
+.thumb_vid .name { clear:both;}
+.video_heading { font-size:15px; color:#40AAC6; font-weight:bold;}
+.video_name { font-size:12px; font-weight:bold; margin-top:5px;}
+

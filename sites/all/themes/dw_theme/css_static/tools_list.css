@@ -1,0 +1,111 @@
+.toolbox{
+border:rgb(230, 244, 251) 1px solid;
+float: left;
+font-family: verdana, Arial, Helvetica, sans-serif;
+font-size: 12px;
+min-height: 220px;
+margin:10px;
+padding:5px;
+text-align: justify;
+text-decoration: none;
+width: 320px;
+
+}
+.toolbox h1{
+font-size:20px;
+background: #AEEAFE;
+
+}
+.toolbox p{
+color:black;
+line-height: 14px;
+padding:5px;
+display: block;
+min-height:180px;
+}
+/*.toolbutton {
+background-color: #AEEAFE;
+float:right;
+color: #000;
+position:relative;
+bottom:0px;
+}
+*/
+.toolbutton{ clear: both;}
+.toolbutton a{
+background-color: #AEEAFE;
+float: right;
+display: block;
+width: 60px;
+padding: 5px;
+height: 15px;
+position: relative;
+color: #000;
+text-align: center;
+text-decoration: none;
+}
+#tb1:hover, #tb2:hover, #tb3:hover, #tb4:hover{
+background: #E6F4FB;
+
+}
+/*
+#tb1 a{
+background-color: #AEEAFE;
+float: right;
+display: block;
+width: 60px;
+padding: 5px;
+height: 15px;
+position: relative;
+top: 5px;
+color: #000;
+text-align: center;
+line-height: 15px;
+text-decoration: none;
+}
+
+#tb2 a{
+background-color: #AEEAFE;
+float: right;
+display: block;
+width: 60px;
+padding: 5px;
+height: 15px;
+position: relative;
+top: 46px;
+color: #000;
+text-align: center;
+line-height: 15px;
+text-decoration: none;
+}
+
+#tb3 a{
+background-color: #AEEAFE;
+float: right;
+display: block;
+width: 60px;
+padding: 5px;
+height: 15px;
+position:relative;
+top: 46px;
+color: #000;
+text-align: center;
+line-height: 15px;
+text-decoration: none;
+}
+
+#tb4 a{
+background-color: #AEEAFE;
+float: right;
+display: block;
+width: 60px;
+padding: 5px;
+height: 15px;
+position:relative;
+top: -16px;
+color: #000;
+text-align: center;
+line-height: 15px;
+text-decoration: none;
+}
+*/

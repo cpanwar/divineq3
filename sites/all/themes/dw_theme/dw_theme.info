@@ -1,0 +1,26 @@
+name = divine theme
+description = Theme for divinewellness.com
+version = VERSION
+
+core = 6.x
+engine = phptemplate
+
+stylesheets[all][] = main.css
+stylesheets[all][] = style.css
+stylesheets[all][] = css/thickbox.css
+scripts[] = scripts/dw_thm.js
+scripts[] = scripts/thickbox.js
+
+
+
+
+regions[left] = Left sidebar
+regions[right] = Right sidebar
+regions[header] = Header
+regions[topmenu] = Top Menu
+regions[content] = Content
+regions[navigation] = Navigation
+regions[explore_programs] = Explore Programs
+regions[footer_content] = Footer Content
+regions[footer] = Footer
+regions[footer_links] = Footer Links

@@ -1,0 +1,45 @@
+.yogaclassContainer{
+width:585px;
+float:left;
+font-size:12px;
+text-align:justify;
+}
+.yogaclassContainer a{
+
+color:#40AAC6;
+
+}
+.yogaclassContainer .title{
+font:normal 30px "Trebuchet MS", Verdana, arial;
+color:#40AAC6;
+text-align:left;
+padding:0 0 3px 0;
+margin:0;
+}
+.flashBox{
+height:160px;
+background:  url(../images/flashboxBG.gif) repeat-x left top;
+padding:10px;
+}
+.flashBox .Background{
+background: url(../images/flash-background.gif) no-repeat right bottom;
+width:300px;
+height:75px;
+float:right;
+font:normal 16px "Trebuchet MS", Verdana, arial;
+color:#3E3E3E;
+line-height:22px;
+height:160px;
+
+}
+.flashBox  .Background .subtitle{
+color:#5F5D5D;
+font:normal 24px "Trebuchet MS", Verdana, arial;
+padding:0;
+margin:0;
+}
+.flashBox .flashBanner{
+width:235px;
+height:145px;
+float:left;
+}
