@@ -1,0 +1,15 @@
+name = Public Bookings Free Cache
+description = "Allows public booking to administrate the free cache."
+package = "Bookings"
+
+core = 6.x
+
+dependencies[] = bookingsapi_free_cache
+dependencies[] = publicbookings
+
+; Information added by drupal.org packaging script on 2011-02-26
+version = "6.x-3.0-alpha2"
+core = "6.x"
+project = "publicbookings"
+datestamp = "1298742971"
+

@@ -51,6 +51,16 @@ function divine_guru_special_package_menu() {
 }
 
 /**
+ * Implementation of hook_init().
+ */
+function divine_guru_special_package_init(){
+  //SET DEFAULT TIMEZONE TO UTC
+  date_default_timezone_set("UTC");
+  //CLEAN (ERASE) THE OUTPUT BUFFER AND TURN OFF OUTPUT BUFFERING
+  ob_end_clean();
+}
+
+/**
  * This function is used to check whether one package is special and active or not.
  */
 function isSpecialPackage($packageId){

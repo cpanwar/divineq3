@@ -1,0 +1,860 @@
+
+<?php
+/**
+ * @file
+ * Login-free booking of resources, with a management backend.
+ *
+ */
+
+/**
+ * Implementation of hook_perm().
+ */
+function publicbookings_perm() {
+  return array('administer bookings', 'administer booking settings', 'access public pages');
+}
+
+/**
+ * Implementation of hook_init().
+ */
+function publicbookings_init() {
+  drupal_add_css(drupal_get_path('module', 'publicbookings')  .'/publicbookings.css');
+}
+
+/**
+ * Implementation of hook_forms().
+ */
+function publicbookings_forms() {
+  $forms['publicbookings_booking_add_form']['callback'] = 'publicbookings_booking_form';
+  $forms['publicbookings_booking_edit_form']['callback'] = 'publicbookings_booking_form';
+
+  $forms['publicbookings_availability_add_form']['callback'] = 'publicbookings_availability_form';
+  $forms['publicbookings_availability_edit_form']['callback'] = 'publicbookings_availability_form';
+
+  $forms['publicbookings_resource_add_form']['callback'] = 'publicbookings_resource_form';
+  $forms['publicbookings_resource_edit_form']['callback'] = 'publicbookings_resource_form';
+
+  return $forms;
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function publicbookings_menu() {
+  $items = array();
+  $items['publicbookings'] = array(
+    'title' => t('Public bookings'),
+    'page callback' => 'publicbookings_public_overview_page',
+    'access arguments' => array('access public pages'),
+    'file' => 'publicbookings.public.inc'
+  );
+  $items['publicbookings/overview'] = array(
+    'title' => t('Overview'),
+    'weight' => -1,
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items['publicbookings/resources'] = array(
+    'title' => t('View resources'),
+    'page callback' => 'publicbookings_public_resources',
+    'access arguments' => array('access public pages'),
+    'file' => 'publicbookings.public.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items['publicbookings/schedules'] = array(
+    'title' => t('View schedules'),
+    'page callback' => 'publicbookings_public_schedules',
+    'access arguments' => array('access public pages'),
+    'file' => 'publicbookings.public.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items['publicbookings/schedules/%publicbookings_schedule/view'] = array(
+    'title' => t('View schedule'),
+    'page callback' => 'publicbookings_public_schedule_view',
+    'access arguments' => array('access public pages'),
+    'file' => 'publicbookings.public.inc',
+    'page arguments' => array(2),
+    'type' => MENU_CALLBACK,
+  );
+  $items['publicbookings/request/add'] = array(
+    'title' => t('Place request'),
+    'page callback' => 'publicbookings_public_request_add',
+    'access arguments' => array('access public pages'),
+    'file' => 'publicbookings.public.inc',
+    'type' => MENU_LOCAL_TASK,
+    'page arguments' => array(3),
+  );
+  $items['publicbookings/request/add/%'] = array(
+    'title' => t('Place request'),
+    'page callback' => 'publicbookings_public_request_add',
+    'access arguments' => array('access public pages'),
+    'file' => 'publicbookings.public.inc',
+    'type' => MENU_LOCAL_TASK,
+    'page arguments' => array(3),
+  );
+  $items['publicbookings/request/update'] = array(
+    'title' => t('Update request'),
+    'page callback' => 'publicbookings_public_passphrase',
+    'access arguments' => array('access public pages'),
+    'file' => 'publicbookings.public.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items['publicbookings/request/%publicbookings_client/update'] = array(
+    'title' => t('Update request'),
+    'page callback' => 'publicbookings_public_request_update',
+    'access arguments' => array('access public pages'),
+    'page arguments' => array(2),
+    'file' => 'publicbookings.public.inc',
+    'type' => MENU_CALLBACK,
+  );
+  $items['publicbookings/request/confirm'] = array(
+    'title' => t('Confirm booking request'),
+    'page callback' => 'publicbookings_confirm',
+    'access arguments' => array('access public pages'),
+    'file' => 'publicbookings.public.inc',
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['publicbookings/ajaxtest'] = array(
+    'title'         => t('Test AJAX'),
+    'page callback' => 'publicbookings_test_ajax',
+    'file' => 'publicbookings.admin.inc',
+  );
+
+  $items['publicbookings/ajax/resource/list'] = array(
+    'page callback'     => 'publicbookings_ajax_resource_list',
+    'access arguments'  => array('access public pages'),
+    'file'              => 'publicbookings.ajax.inc',
+    'type'              => MENU_CALLBACK,
+  );
+
+  $items['publicbookings/ajax/availability'] = array(
+    'page callback' => 'publicbookings_ajax_availability',
+    'access arguments' => array('access public pages'),
+    'file' => 'publicbookings.ajax.inc',
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['publicbookings/ajax/booking/read'] = array(
+    'page callback' => 'publicbookings_ajax_readbooking',
+    'access arguments' => array('access public pages'),
+    'file' => 'publicbookings.ajax.inc',
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['publicbookings/ajax/booking/save'] = array(
+    'page callback' => 'publicbookings_ajax_booking_save',
+    'access arguments' => array('access public pages'),
+    'file' => 'publicbookings.ajax.inc',
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['publicbookings/ajax/resource_availability'] = array(
+    'page callback' => 'publicbookings_ajax_resource_availability',
+    'access arguments' => array('administer bookings'),
+    'file' => 'publicbookings.ajax.inc',
+    'type' => MENU_CALLBACK,
+  );
+
+  // admin menu items
+  $items['admin/content/publicbookings'] = array(
+    'title' => t('Public bookings'),
+    'description' => t('Manage bookings and bookable resources.'),
+    'page callback' => 'publicbookings_overview_page',
+    'access arguments' => array('administer bookings'),
+    'file' => 'publicbookings.admin.inc'
+  );
+  $items['admin/content/publicbookings/overview'] = array(
+    'title' => t('Overview'),
+    'access arguments' => array('administer bookings'),
+    'weight' => -1,
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items['admin/content/publicbookings/settings'] = array(
+    'title' => t('Settings'),
+    'page callback' => 'publicbookings_settings',
+    'access arguments' => array('administer booking settings'),
+    'weight' => 5,
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items['admin/content/publicbookings/booking/add'] = array(
+    'title' => t('Add booking'),
+    'page callback' => 'publicbookings_booking_add',
+    'access arguments' => array('administer bookings'),
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items['admin/content/publicbookings/booking/%bookingsapi_booking/edit'] = array(
+    'title' => t('Edit booking'),
+    'page callback' => 'publicbookings_booking_edit',
+    'access arguments' => array('administer bookings'),
+    'page arguments' => array(4),
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/content/publicbookings/booking/%bookingsapi_booking/delete'] = array(
+    'title' => t('Edit booking'),
+    'page callback' => 'publicbookings_booking_delete',
+    'access arguments' => array('administer bookings'),
+    'page arguments' => array(4),
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/content/publicbookings/resource/%bookingsapi_resource/availability'] = array(
+    'title' => t('Availability'),
+    'page callback' => 'publicbookings_availability_list',
+    'page arguments' => array(4),
+    'access arguments' => array('administer bookings'),
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/content/publicbookings/resource/%bookingsapi_resource/availability/list'] = array(
+    'title' => t('List availabilities'),
+    'weight' => -1,
+    'access arguments' => array('administer bookings'),
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items['admin/content/publicbookings/resource/%bookingsapi_resource/availability/add'] = array(
+    'title' => t('Add availability'),
+    'page callback' => 'publicbookings_availability_add',
+    'page arguments' => array(4),
+    'access arguments' => array('administer bookings'),
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_LOCAL_TASK
+  );
+  $items['admin/content/publicbookings/availability/%bookingsapi_availability/edit'] = array(
+    'title' => t('Edit availability'),
+    'page callback' => 'publicbookings_availability_edit',
+    'access arguments' => array('administer bookings'),
+    'page arguments' => array(4),
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_CALLBACK
+  );
+  $items['admin/content/publicbookings/availability/%bookingsapi_availability/delete'] = array(
+    'title' => t('Delete availability'),
+    'page callback' => 'publicbookings_availability_delete',
+    'access arguments' => array('administer bookings'),
+    'page arguments' => array(4),
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_CALLBACK
+  );
+  $items['admin/content/publicbookings/resource'] = array(
+    'title' => t('Resources'),
+    'description' => t('Manage bookable resources.'),
+    'page callback' => 'publicbookings_resource_list',
+    'access callback' => 'bookingsapi_admin_access',
+    'access arguments' => array('administer bookings'),
+    'file' => 'publicbookings.admin.inc'
+  );
+  $items['admin/content/publicbookings/resource/list'] = array(
+    'title' => t('List resources'),
+    'access arguments' => array('administer booking settings'),
+    'file' => 'publicbookings.admin.inc',
+    'weight' => -1,
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items['admin/content/publicbookings/resource/add'] = array(
+    'title' => t('Add resource'),
+    'page callback' => 'publicbookings_resource_add',
+    'access arguments' => array('administer booking settings'),
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items['admin/content/publicbookings/resource/%bookingsapi_resource'] = array(
+    'title' => t('View resource'),
+    'page callback' => 'publicbookings_resource_edit',
+    'page arguments' => array(4),
+    'access arguments' => array('administer booking settings'),
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/content/publicbookings/resource/%bookingsapi_resource/view'] = array(
+    'title' => t('View resource'),
+    'access arguments' => array('administer bookings'),
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items['admin/content/publicbookings/resource/%bookingsapi_resource/edit'] = array(
+    'title' => t('Edit resource'),
+    'page callback' => 'publicbookings_resource_edit',
+    'page arguments' => array(4),
+    'access arguments' => array('administer booking settings'),
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/content/publicbookings/resource/%bookingsapi_resource/delete'] = array(
+    'title' => t('Delete resource'),
+    'page callback' => 'publicbookings_resource_delete',
+    'page arguments' => array(4),
+    'access arguments' => array('administer booking settings'),
+    'file' => 'publicbookings.admin.inc',
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Load client information from client ID.
+ *
+ * @param int $client_id
+ * @return array or FALSE
+ */
+function publicbookings_client_load($client_id) {
+  $sql = 'SELECT * FROM {publicbookings_clients} WHERE client_id=%d';
+  $q = db_query($sql, $client_id);
+  return db_fetch_array($q);
+}
+
+/**
+ * Load client information from record ID.
+ *
+ * @param int $record_id
+ * @return array or FALSE
+ */
+function publicbookings_client_load_from_record_id($record_id) {
+  $record_id = (int) $record_id;
+  if ($record_id < 1) {
+    return FALSE;
+  }
+  $sql = 'SELECT * FROM {publicbookings_clients} WHERE record_id=%d';
+  $q = db_query($sql, $record_id);
+  return db_fetch_array($q);
+}
+
+function publicbookings_types_translate($type) {
+  switch ($type) {
+    case 'una_s': return t('Unavailable time');
+    case 'booking': return t('Booking');
+  }
+}
+
+function publicbookings_bookingsapi_timeframe($op, &$sql, $config) {
+  $sql = str_replace('WHERE', 'LEFT JOIN {bookings_records} ON {bookings_schedules}.record_id={bookings_records}.record_id WHERE', $sql);
+  return array('sql' => $sql);
+}
+
+/**
+ * Checks for both potential and certain conflicts using bookingsapi_conflict_check(),
+ * then sets 'html_conflict_check' in $data to contain the formatted HTML result,
+ * and 'all_conflicts_count' to contain a count of all conflicting records found.
+ *
+ * @param array $data
+ */
+function publicbookings_conflict_check(&$data) {
+  $conflicts = array();
+  $conflicted = bookingsapi_conflict_check($data, TRUE, $conflicts, 10);
+  $certain = $potential = '';
+  $potential_conflicts_count = $certain_conflicts_count = 0;
+
+  if ($conflicted != BOOKINGSAPI_CONFLICTS_NO) {
+    // TODO: create theme function
+    $typenames = bookingsapi_record_types();
+    foreach ($conflicts as $record) {
+      $record_type = bookingsapi_numeric_record_types($record['type']);
+      $status_type = bookingsapi_numeric_record_status($record['status']);
+
+      // prepare table row HTML
+      if ($status_type == BOOKINGSAPI_STATUS_PENDING || $status_type == BOOKINGSAPI_STATUS_UNCONFIRMED) {
+        $status_name = t('Pending');
+      }
+      else {
+        $status_name = t('Finalized');
+      }
+      if (is_array($record_type)) {
+        $row = "<tr><td>Unavailable Resource</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>";
+      }
+      else {
+        $row =  "<tr><td>{$status_name}{$typenames[$record_type]}</td>".
+                "<td>{$record['name']}</td><td>{$record['start']}</td>".
+                "<td>{$record['end']}</td></tr>";
+      }
+
+      $is_pending_booking = $record_type == BOOKINGSAPI_BOOKING && $status_type == BOOKINGSAPI_STATUS_PENDING;
+      if ($is_pending_booking ) {
+        $potential .= $row;
+        $potential_conflicts_count++;
+      } 
+      else {
+        $certain .= $row;
+        $certain_conflicts_count++;
+      }
+    }
+
+    $table_header = '<thead><tr><th>'. t('Type') .'</th><th>'.
+                    t('Name') .'</th><th>'. t('Start') .'</th><th>'.
+                    t('End') .'</th></tr></thead>';
+    $certain_html = '';
+    if (!empty($certain) || ! in_array($conflicted, array(BOOKINGSAPI_CONFLICTS_NO, BOOKINGSAPI_CONFLICTS_POTENTIAL))) {
+      $certain_html =  '<div class="bookingsapi-certain-conflicts"><img src="'.
+                       base_path() .'misc/watchdog-error.png" alt="" /> <strong>'.
+                       t('Conflicts found') .'</strong>';
+      if ( variable_get('publicbookings_ajax_display_conflicts', FALSE) ) {
+        $certain_html .= '<p>'. t('The following conflicts with your requested booking:') .
+          '</p>';
+        $certain_html .= '<table>'. $table_header . $certain .'</table>';
+        $certain_html .= '<p>'. t('You must pick an alternate time slot that doesn\'t conflict with the above.') .'</p></div>';
+      }
+    }
+    $potential_html = '';
+    if (!empty($potential) || $conflicted == BOOKINGSAPI_CONFLICTS_POTENTIAL ) {
+      $potential_html =  '<div class="bookingsapi-certain-conflicts"><img src="'.
+                         base_path() .'misc/watchdog-error.png" alt="" /> <strong>'.
+                         t('Potential conflicts found') .'</strong>';
+
+      if ( variable_get('publicbookings_ajax_display_conflicts', FALSE) ) {
+        $potential_html .= '<div class="bookingsapi-potential-conflicts"><p>'.
+                         t('The following potentially conflicts with your requested booking:') .
+                         '</p>';
+        $potential_html .= '<table>'. $table_header . $potential .'</table>';
+        $potential_html .= '<p>'. t('You may still proceed with placing your booking, but there is significantly less chance of it being approved by a booking manager.') .'</p></div>';
+      }
+    }
+    $html .= $certain_html . $potential_html;
+  } 
+  else {
+    $html = '<img src="'. base_path() .'misc/watchdog-ok.png" alt="" />'.
+            t('No conflicts found.') . $_POST['rrule'];
+  }
+
+  $data['html_all_conflicts'] = $html;
+  $data['html_potential_conflicts'] = $potential_html;
+  $data['html_certain_conflicts'] = $certain_html;
+  $data['count_all_conflicts'] = $all_conflicts_count;
+  $data['count_potential_conflicts'] = $potential_conflicts_count;
+  $data['count_certain_conflicts'] = $certain_conflicts_count;
+}
+
+/**
+ * Implementation of hook_help().
+ */
+function publicbookings_help($path, $arg) {
+  $helptext = '';
+  switch ($path) {
+    case 'admin/content/publicbookings':
+      $helptext .= t('Manage confirmed or requested bookings, and bookable resources.');
+      break;
+    case 'admin/content/publicbookings/settings';
+      $helptext .= t('Global booking settings.');
+      break;
+    case 'admin/content/publicbookings/resources':
+      $helptext .= t('Manage bookable resources.');
+      break;
+    case 'admin/content/publicbookings/availabilities':
+      $helptext .= t('Manage resource availability information.');
+      break;
+  }
+  return $helptext;
+}
+
+/**
+ * Implementation of hook_mail().
+ */
+function publicbookings_mail($key, &$message, $params) {
+  $vars = array();
+  foreach ($params as $k => $v) {
+    $vars['%'. $k] = $v;
+  }
+  if ( array_key_exists('passphrase',$params) ) {
+    $vars['%url'] = 'http://'. $_SERVER['SERVER_NAME'] . url('publicbookings/request/confirm/'.$params['passphrase']);
+  }
+
+  $config_header  = variable_get('publicbookings_all_body_header','');
+  $config_footer  = variable_get('publicbookings_all_body_footer','');
+  $config_prefix  = variable_get('publicbookings_all_subject_prefix','');
+  $config_postfix = variable_get('publicbookings_all_subject_postfix','');
+
+  $vars['%header'] = strtr($config_header, $vars);
+  $vars['%footer'] = strtr($config_footer, $vars);
+  $vars['%prefix'] = strtr($config_prefix, $vars);
+  $vars['%postfix'] = strtr($config_postfix, $vars);
+
+  $subject = variable_get('publicbookings_'.$key.'_subject','');
+  $body    = variable_get('publicbookings_'.$key.'_body','');
+
+  $message['subject'] = strtr($subject,$vars);
+  $message['body'] = strtr($body, $vars);
+}
+
+/**
+ * Save booking record and, if applicable, client information.
+ * If client information exists, send the appropriate status update email to the client.
+ *
+ * @param array $values
+ * @return int
+ */
+function publicbookings_booking_save(&$values) {
+  Global $user;
+  $old_record = bookingsapi_booking_load($values['record_id']);
+  if ( is_int($old_record['resource_id']) && $old_record['resource_id'] != $values['resource_id'] ) {
+    watchdog("Public Bookings","Trying to change resource id via publicbookings_booking_save");
+    return FALSE;
+  }
+  $record_save = bookingsapi_booking_save($values);
+  $client = publicbookings_client_load_from_record_id($values['record_id']);
+  if ($record_save[0]) {
+    if (!empty($values['email'])) {
+      if (empty($values['passphrase']) && empty($client['passphrase']) ) {
+        $values['passphrase'] = publicbookings_generate_passphrase(12);
+      }
+
+      $using_sql_ts_triggers = variable_get('bookingsapi_using_sql_ts_triggers', FALSE);
+      if (empty($values['client_id'])) {
+        $update = array();
+        $values['created'] = date(DATE_FORMAT_DATETIME);
+      } 
+      else {
+        $update = 'client_id';
+        $values['changed'] = date(DATE_FORMAT_DATETIME);
+      }
+      $values['uid']=$user->uid;
+      drupal_write_record('publicbookings_clients', $values, $update);
+      $values = (array) $values;
+
+      // the emails require the resource name, so load the resource
+      $res = bookingsapi_resource_load($values['resource_id']);
+      $values['resource_name'] = $res->title;
+
+      switch ($record_save[1]) {
+        case SAVED_NEW:
+          if ( variable_get('publicbookings_sendmail',true) ) {
+            _publicbookings_send_mail('request_confirm', $values['email'], $values);
+          }
+          else {
+            module_load_include('inc','publicbookings','publicbookings.public');
+            publicbookings_confirm($values['passphrase']);
+          }
+          break;
+        case SAVED_UPDATED:
+          $old_record_status_code = bookingsapi_numeric_record_status($old_record['status']);
+          $new_status = (int) $values['status'];
+          if ($old_record_status_code != $new_status) {
+            switch ($new_status) {
+              case BOOKINGSAPI_STATUS_FINALIZED:
+                _publicbookings_send_mail('request_finalized', $values['email'], $values);
+                break;
+              case BOOKINGSAPI_STATUS_CANCELLED:
+                _publicbookings_send_mail('request_cancelled', $values['email'], $values);
+                break;
+              case BOOKINGSAPI_STATUS_DENIED:
+                _publicbookings_send_mail('request_denied', $values['email'], $values);
+                break;
+              default:
+                _publicbookings_send_mail('request_updated', $values['email'], $values);
+                break;
+            }
+          } 
+          else {
+            _publicbookings_send_mail('request_updated', $values['email'], $values);
+          }
+          break;
+      }
+    }
+  }
+  return $record_save;
+}
+
+function _publicbookings_send_mail($key, $email, $values) {
+  drupal_mail('publicbookings', $key, $email, language_default(), $values, NULL, TRUE);
+  if (variable_get('publicbookings_notify',false) 
+    && valid_email_address(variable_get('publicbookings_notify_address',''))) {
+    drupal_mail('publicbookings', $key, variable_get('publicbookings_notify_address',''), language_default(), $values, NULL, TRUE);
+  }
+}
+
+function publicbookings_generate_passphrase($length) {
+  $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890';
+  $pass = '';
+  while ($length > 0) {
+    $pass .= substr($chars, rand(0, 35), 1);
+    $length--;
+  }
+  return $pass;
+}
+
+/**
+ * Implementation of hook_views_api().
+ */
+function publicbookings_views_api() {
+  return array(
+    'api' => '2.0',
+  );
+}
+
+/**
+ * Implementation of hook_views_handlers().
+ */
+function publicbookings_views_handlers() {
+  return array(
+    'info' => array(
+      'path' => drupal_get_path('module', 'publicbookings') .'/handlers',
+    ),
+    'handlers' => array(
+      'views_handler_field_publicbookings_record_link' => array(
+        'parent' => 'views_handler_field',
+        'file' => 'views_handler_field.inc',
+      ),
+      'views_handler_field_publicbookings_resource_link' => array(
+        'parent' => 'views_handler_field',
+        'file' => 'views_handler_field.inc',
+      ),
+      'views_handler_field_publicbookings_booking_link_edit' => array(
+        'parent' => 'views_handler_field',
+        'file' => 'views_handler_field.inc',
+      ),
+      'views_handler_field_publicbookings_availability_link_edit' => array(
+        'parent' => 'views_handler_field',
+        'file' => 'views_handler_field.inc',
+      ),
+      'views_handler_field_publicbookings_resource_link_edit' => array(
+        'parent' => 'views_handler_field',
+        'file' => 'views_handler_field.inc',
+      ),
+      'views_handler_field_publicbookings_title' => array(
+        'parent' => 'views_handler_field',
+        'file' => 'views_handler_field.inc',
+      ),
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_requirements().
+ */
+function publicbookings_requirements($phase) {
+  if ($phase == 'runtime') {
+    $resources = bookingsapi_resource_minimal_list(TRUE);
+    if ( count($resources) >= 1) {
+      $reqs['publicbookings'] = array(
+        'title' => t( 'Publicbookings resources' ),
+        'value' => t( 'At least one resource is defined.' ),
+        'severity' => REQUIREMENT_OK
+      );
+    }
+    else {
+      $reqs['publicbookings'] = array(
+        'title' => t( 'Publicbookings resources' ),
+        'value' => t( 'No !resources found.', array(
+          '!resources' => l( 'resources', 'admin/content/publicbookings/resource')
+        ) ),
+        'description' => t( 'Without creating at least one enabled resource, no-one can book resources.' ),
+        'severity' => REQUIREMENT_ERROR
+      );
+    }
+
+    return $reqs;
+  }
+}
+
+/**
+ * Checks if the given passphrase matches the given id.
+ * 
+ * @param int $record_id ID to check
+ * @param string $passphrase Passphrase to check
+ * @return bool Whether the id matches the passphrase.
+ */
+function publicbookings_confirm_passphrase_correct( $record_id, $passphrase ) {
+  $sql = "SELECT record_id FROM {publicbookings_clients} WHERE passphrase = '%s'";
+  $id  = (int) db_result(db_query($sql, $passphrase));
+  if ( is_int($record_id) && is_int($id) && $id == $record_id ) {
+    return TRUE;
+  } else {
+    return FALSE;
+  }
+}
+
+/**
+ * Returns the list of titles, the title-string to the given ID or the id to the title-string.
+ * 0: ''<br>
+ * 1: Ms.<br>
+ * 2: Mr.<br>
+ * Checking wether a given title_id is valid can be done using "!is_array(publicbookings_title($title_id))".
+ *
+ * @param mixed $title_id If null or unknown returns a list of titles, if numeric the corresponding title, if a string the corresponding id.
+ * @return mixed Either an array of titles or a string or an int.
+ */
+
+function publicbookings_title( $title_id = NULL ) {
+  $title = array( '', 'Ms.', 'Mr.' );
+
+  if ( is_null($title_id) ) {
+    return $title;
+  } else if ( is_numeric($title_id) ) {
+    return $title[(int) $title_id];
+  } else if ( is_string($title_id) ) {
+    foreach ( $title as $id => $name ) {
+      if ( $name == $title_id ) {
+        return $id;
+      }
+    }
+  } else {
+    return $title;
+  }
+}
+
+
+function publicbookings_bookingsapi_variables($op, &$variables, &$langcode) {
+  $variables = array_merge($variables, array(
+    'publicbookings_enabled' => array(
+        'title'       => t('Bookings enabled', array(), $langcode),
+        'description' => t('Wether bookings can be made', array(), $langcode),
+        'type'        => 'bool',
+        'value'       => variable_get('publicbookings_enabled',false),
+      ),
+    'publicbookings_sendmail' => array(
+        'title'       => t('Enable email-verification', array(), $langcode),
+        'description' => t('If checked, each new public booking requires, that the corresponding mailadress is verified by following a link send in a confirmation email. It is recommanded to leave this checked in order to verify, that mailadresses are correct and bookings serious.', array(), $langcode),
+        'type'        => 'bool',
+        'value'       => variable_get('publicbookings_sendmail',true),
+      ),
+    'publicbookings_show_unconfirmed' => array(
+        'title' => t('Show unconfirmed bookings (admin)', array(), $langcode),
+        'description' => t('If checked, the administration page at ').l('admin/content/publicbookings','admin/content/publicbookings').t(' will show bookings with unconfirmed email-adresses. Highly recommanded if unconfirmed bookings conflict with new bookings!', array(), $langcode),
+        'type'        => 'bool',
+        'value'       => variable_get('publicbookings_show_unconfirmed',true),
+      ),
+    'publicbookings_finalized_after_confirm' => array(
+        'title'       => t('Autoapprove confirmed bookings', array(), $langcode),
+        'description' => t('If checked, new bookings are automatically set to finalized ("approved by an administrator") as soon as they are confirmed. Use only in controlled internal areas if you trust your users to not misuse resources.', array(), $langcode),
+        'value'       => variable_get('publicbookings_enabled',false),
+        'type'        => 'bool',
+      ),
+    'publicbookings_ajax_display_conflicts' => array(
+        'type'        => 'bool',
+        'title'       => t('Display conflicting bookings via AJAX', array(), $langcode),
+        'description' => t('If checked, a list of conflicting bookings is returned via AJAX conflict checks.', array(), $langcode),
+        'value'       => variable_get('publicbookings_ajax_display_conflicts',false),
+      ),
+    'publicbookings_all_body_header' => array(
+        'type'        => 'string',
+        'title'       => t('Email Header', array(), $langcode),
+        'description' => t('Header that will be printed with %header and in front of each mail-body.', array(), $langcode),
+        'value'       => variable_get('publicbookings_all_body_header',''),
+      ),
+    'publicbookings_all_body_footer' => array(
+        'type'        => 'string',
+        'title'       => t('Email Footer', array(), $langcode),
+        'description' => t('Footer that will be printed with %footer and after each mail-body.', array(), $langcode),
+        'value'       => variable_get('publicbookings_all_body_footer',''),
+      ),
+    'publicbookings_all_subject_prefix' => array(
+        'type'        => 'string',
+        'title'       => t('Email subject prefix', array(), $langcode),
+        'description' => t('Prefix that will be printed with %prefix and in front of each subject.', array(), $langcode),
+        'value'       => variable_get('publicbookings_all_subject_prefix',''),
+      ),
+    'publicbookings_all_subject_postfix' => array(
+        'type'        => 'string',
+        'title'       => t('Email subject postfix', array(), $langcode),
+        'description' => t('Postfix that will be printed with %postfix and after each subject.', array(), $langcode),
+        'value'       => variable_get('publicbookings_all_subject_postfix',''),
+      ),
+    'publicbookings_request_confirm_subject' => array(
+        'type'        => 'string',
+        'title'       => t('Subject of requests for confirmation', array(), $langcode),
+        'value'       => variable_get('publicbookings_request_confirm_subject',''),
+      ),
+    'publicbookings_request_confirm_body' => array(
+        'type'        => 'string',
+        'title'       => t('Body of requests for confirmation', array(), $langcode),
+        'value'       => variable_get('publicbookings_request_confirm_body',''),
+      ),
+    'publicbookings_request_pending_subject' => array(
+        'type'        => 'string',
+        'title'       => t('Subject of pending notifications', array(), $langcode),
+        'value'       => variable_get('publicbookings_request_pending_subject',''),
+      ),
+    'publicbookings_request_pending_body' => array(
+        'type'        => 'string',
+        'title'       => t('Body of pending notifications', array(), $langcode),
+        'value'       => variable_get('publicbookings_request_pending_body',''),
+      ),
+    'publicbookings_request_finalized_subject' => array(
+        'type'        => 'string',
+        'title'       => t('Subject of finalized notifications', array(), $langcode),
+        'value'       => variable_get('publicbookings_request_finalized_subject',''),
+      ),
+    'publicbookings_request_finalized_body' => array(
+        'type'        => 'string',
+        'title'       => t('Body of finalized notifications', array(), $langcode),
+        'value'       => variable_get('publicbookings_request_finalized_body',''),
+      ),
+    'publicbookings_request_denied_subject' => array(
+        'type'        => 'string',
+        'title'       => t('Subject of denied notifications', array(), $langcode),
+        'value'       => variable_get('publicbookings_request_denied_subject',''),
+      ),
+    'publicbookings_request_denied_body' => array(
+        'type'        => 'string',
+        'title'       => t('Body of denied notifications', array(), $langcode),
+        'value'       => variable_get('publicbookings_request_denied_body',''),
+      ),
+    'publicbookings_request_updated_subject' => array(
+        'type'        => 'string',
+        'title'       => t('Subject of updated notifications', array(), $langcode),
+        'value'       => variable_get('publicbookings_request_updated_subject',''),
+      ),
+    'publicbookings_request_updated_body' => array(
+        'type'        => 'string',
+        'title'       => t('Body of updated notifications', array(), $langcode),
+        'value'       => variable_get('publicbookings_request_updated_body',''),
+      ),
+    'publicbookings_request_cancelled_subject' => array(
+        'type'        => 'string',
+        'title'       => t('Subject of cancelled notifications', array(), $langcode),
+        'value'       => variable_get('publicbookings_request_cancelled_subject',''),
+      ),
+    'publicbookings_request_cancelled_body' => array(
+        'type'        => 'string',
+        'title'       => t('Body of cancelled notifications', array(), $langcode),
+        'value'       => variable_get('publicbookings_request_cancelled_body',''),
+      ),
+    'publicbookings_mail_reset' => array(
+        'type'        => 'bool',
+        'title'       => t('Reset every mail to its default', array(), $langcode),
+        'value'       => FALSE,
+      ),
+    'publicbookings_notify' => array(
+        'type'        => 'bool',
+        'title'       => t('Notify administrator of new bookings.', array(), $langcode),
+        'value'       => variable_get('publicbookings_notify',false),
+        'description' => t('If checked, the administrator will get a copy of each email send to a customer (e.g. confirmation mails)', array(), $langcode),
+      ),
+    'publicbookings_notify_address' => array(
+        'type'  => 'string',
+        'title' => t('Address that will recieve notifications.', array(), $langcode),
+        'value' => variable_get('publicbookings_notify_address',variable_get('site_mail','')),
+      ),
+    )
+  );
+}
+
+/**
+ * Selects a booking from a passphrase.
+ * 
+ * @param string $passphrase Passphrase to check.
+ * @param bool $full If true the full record is returned.
+ * @return mixed Returns false if no record could be found, otherwise the record-id or the full record.
+ */
+function publicbookings_from_passphrase($passphrase, $full = FALSE) {
+  $sql = "SELECT record_id, client_id FROM {publicbookings_clients} WHERE passphrase = '%s'";
+  $r   = db_fetch_array(db_query($sql, $passphrase));
+
+  if ( $r === FALSE ) {
+    return $r;
+  } else if ( ! $full ) {
+    return $r['record_id'];
+  } else {
+    $res = publicbookings_client_load($r['client_id']);
+    $res = array_merge($res, bookingsapi_booking_load($r['record_id']));
+    return $res;
+  }
+};
+
+/**
+ * Returns TRUE if the user has the right to either change bookings or settings.
+ */
+function bookingsapi_admin_access() {
+  return user_access('administer booking settings') || user_access('administer bookings');
+}

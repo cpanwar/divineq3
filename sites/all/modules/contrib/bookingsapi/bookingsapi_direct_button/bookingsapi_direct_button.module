@@ -1,0 +1,13 @@
+<?php
+
+function bookingsapi_direct_button_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
+  module_load_include("module", "bookingsapi");
+  if ( $op == 'view' && $node->type == BOOKINGSAPI_RESOURCE_TYPE ) {
+    $node->content['bookingsapi'] = array(
+        '#value'  => l(t('Book this resource'), 
+                        'publicbookings/request/add/'.$node->nid,
+                        array('attributes'=>array('class'=>'bookingsapi_booking_link'))),
+        '#weight' => 99,
+      );
+  }
+}

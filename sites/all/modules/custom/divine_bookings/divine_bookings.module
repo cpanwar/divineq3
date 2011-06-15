@@ -1,0 +1,530 @@
+<?php
+/**
+ * Implementation of hook_forms().
+ */
+function divine_bookings_forms($form_id) {
+  $forms = array();
+  if (strpos($form_id, 'divine_bookings_activate_form') === 0) {
+  	$forms[$form_id] = array('callback' => 'divine_bookings_activate_form');
+  }
+  return $forms;
+}
+
+/**
+ * Implementation of hook_perm().
+ */
+function divine_bookings_perm() {
+  return array('modify yoga booking instances');
+}
+
+/**
+ * Implementation of hook_menu().
+ */ 
+function divine_bookings_menu() {
+  $items = array();
+
+  // Menu for listing of all packages purchased by a user
+  $items['user/%user/packages'] = array(
+    'title' => t('My Packages'),
+    'description' => t('View your purchased packages.'),
+    'page callback' => 'divine_bookings_package_view',
+    'access callback' => 'divine_bookings_package_view_access',
+    'access arguments' => array(1),
+    'page arguments' => array(1),
+    'type' => MENU_CALLBACK,
+    'weight' => 0,
+  );
+  
+  // Menu for editing an instance
+  $items['user/%user/instance/%/edit'] = array(
+    'title' => t('Edit Instance'),
+    'description' => t('Administrate an instance.'),
+    'page callback' => 'divine_bookings_instance_edit',
+    'access arguments' => array('modify yoga booking instances'),
+    'page arguments' => array(1, 3),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;  
+}
+
+function sessions_view() {
+    drupal_goto(booked_sessions);
+}
+
+/**
+ * Form to enable Activate Now for sessions that are inactive and have not expired
+ */ 
+function divine_bookings_activate_form(&$form_state, $instance) {
+  $form['instance'] = array(
+    '#type' => 'hidden',
+    '#value' => $instance,
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Activate Now'),
+  );
+  $form['#submit'] = array('divine_bookings_activate_form_submit');
+  return $form;
+}
+
+/**
+ * Submit handler for Activate Now form
+ */
+function divine_bookings_activate_form_submit($form, $form_state) {
+  $instance = $form_state['values']['instance'];
+  $validity = db_result(db_query("SELECT ctp.field_validity_value FROM {content_type_product} AS ctp INNER JOIN {dw_yoga_sessions} AS dws ON ctp.nid = dws.product_id WHERE dws.instance_id = %d", $instance));
+  // $qty=db_result(db_query("SELECT qty from dw_yoga_sessions where instance_id=$instance"));
+  // $expiry = time() + ($validity * $qty * 24 * 60 * 60);
+  $expiry = time() + ($validity * 24 * 60 * 60);
+  
+  // Update the expiry and status of the instance
+  db_query("UPDATE {dw_yoga_sessions} SET expiry = %d, status = 1 WHERE instance_id = %d", $expiry, $instance);
+  menu_rebuild();
+}
+
+/**
+ * Access definition for listing of packages
+ */
+function divine_bookings_package_view_access($account) {
+  global $user;
+  if ($user->uid == $account->uid || user_access('modify yoga booking instances'))
+  	return TRUE;
+  else
+    return FALSE;
+}
+
+/**
+ * Menu callback for listing of packages
+ */
+function divine_bookings_package_view($account) {
+  drupal_set_title(t('My packages'));
+  
+  // Allow administrator to see a separate link to administrate an instance
+  $admin = FALSE;
+  if (user_access('modify yoga booking instances'))
+    $admin = TRUE;
+  if ($admin)
+    $header = array('Package', 'Sessions Bought', 'Sessions Available', 'Expires On', 'Status', 'Book Now', 'Admin');
+  else
+    $header = array('Package', 'Sessions Bought', 'Sessions Available', 'Expires On', 'Status', 'Book Now');
+  $rows = array();
+  if(!$admin) { 
+  $query = db_query("SELECT dws.instance_id, node.nid, node.title, product.field_live_sessions_value, dws.sessions, dws.expiry, dws.status FROM {dw_yoga_sessions} AS dws INNER JOIN {node} AS node ON dws.product_id = node.nid INNER JOIN {content_type_product} AS product ON node.nid = product.nid WHERE dws.uid = %d", $account->uid);
+  $i = 0;
+  
+  while ($result = db_fetch_array($query)) {
+  	$i++;  	
+  	$yoga = db_result(db_query("SELECT count(*) FROM {term_data} AS td INNER JOIN {term_node} AS tn ON tn.tid = td.tid WHERE tn.nid = %d AND td.name IN ('Yoga Packages')", $product->nid));   
+  	
+    $qty=$result['qty'];
+    
+  	$package_url = l($result['title'], 'node/' . $result['nid']);
+  	// $sessions_bought = $result['field_live_sessions_value']*$result['qty'];
+  	$sessions_bought = $result['field_live_sessions_value'];
+  	// $sessions_available = $result['sessions']*$result['qty'];
+  	$sessions_available = $result['sessions'];
+  	$expiry_date = ($result['expiry'] == 0) ? 'Not Active' : date('j M Y', $result['expiry']);
+  	$activate_now_form = drupal_get_form('divine_bookings_activate_form_' . $i, $result['instance_id']);
+  	if($yoga) {
+			if ($result['status'] == 0 && $result['expiry'] == 0) {
+			  $status = $activate_now_form;
+			}
+			else if ($result['expiry'] < time()) {
+			  $status = 'Expired';
+			}
+			else {
+			  $status = 'Active';
+			}
+		}
+		else 
+			$status = 'Cannot Book';
+  	 //$status = ($result['status'] == 0 && $result['expiry'] == 0) ? $activate_now_form : ($result['expiry'] < time()) ? 'Expired' : 'Active';
+  	$instance = $result['instance_id'];
+  	if ($admin) {
+  	  if ($result['status'] == 1 && $sessions_available > 0)
+  	    $rows[] = array($package_url, $sessions_bought, $sessions_available, $expiry_date, $status, l('Book Now', 'booking', array('query' => array('package' => $result['nid'],'instance_id' => $result['instance_id']))), l('Edit', 'user/' . $account->uid . '/instance/' . $instance . '/edit'));
+  	  else
+  	    $rows[] = array($package_url, $sessions_bought, $sessions_available, $expiry_date, $status, 'Cannot Book', l('Edit', 'user/' . $account->uid . '/instance/' . $instance . '/edit'));
+  	}
+  	else {
+  	  if ($result['status'] == 1 && $sessions_available > 0)
+  	    $rows[] = array($package_url, $sessions_bought, $sessions_available, $expiry_date, $status, l('Book Now', 'booking', array('query' => array('package' => $result['nid'],'instance_id' => $result['instance_id']))));
+  	  else
+  	    $rows[] = array($package_url, $sessions_bought, $sessions_available, $expiry_date, $status, 'Cannot Book');
+  	}
+  }
+}
+else {
+ $query = db_query("SELECT dws.instance_id, node.nid, node.title, product.field_live_sessions_value, dws.sessions, dws.expiry, dws.status FROM {dw_yoga_sessions} AS dws INNER JOIN {node} AS node ON dws.product_id = node.nid INNER JOIN {content_type_product} AS product ON node.nid = product.nid");
+  $i = 0;
+  
+  while ($result = db_fetch_array($query)) {
+  	$i++;
+  	$yoga = FALSE;
+  	$yoga = db_result(db_query("SELECT count(*) FROM {term_data} AS td INNER JOIN {term_node} AS tn ON tn.tid = td.tid WHERE tn.nid = %d AND td.name IN ('Yoga Packages')", $product->nid));   	
+    $qty=$result['qty'];   
+  	$package_url = l($result['title'], 'node/' . $result['nid']);
+  	// $sessions_bought = $result['field_live_sessions_value']*$result['qty'];
+  	$sessions_bought = $result['field_live_sessions_value'];
+  	// $sessions_available = $result['sessions']*$result['qty'];
+  	$sessions_available = $result['sessions'];
+  	$expiry_date = ($result['expiry'] == 0) ? 'Not Active' : date('j M Y', $result['expiry']);
+  	$activate_now_form = drupal_get_form('divine_bookings_activate_form_' . $i, $result['instance_id']);
+  	if($yoga) {
+			if ($result['status'] == 0 && $result['expiry'] == 0) {
+			  $status = $activate_now_form;
+			}
+			else if ($result['expiry'] < time()) {
+			  $status = 'Expired';
+			}
+			else {
+			  $status = 'Active';
+			}
+		}
+		else
+			$status = 'Cannot Book';
+  	 //$status = ($result['status'] == 0 && $result['expiry'] == 0) ? $activate_now_form : ($result['expiry'] < time()) ? 'Expired' : 'Active';
+  	$instance = $result['instance_id'];
+      if ($sessions_available == 0)
+        $rows[] = array($package_url, $sessions_bought, $sessions_available, $expiry_date, $status, 'No Sessions', l('Edit', 'user/' . $account->uid . '/instance/' . $instance . '/edit'));
+      else {
+      if ($status=='Expired') 
+        $rows[] = array($package_url, $sessions_bought, $sessions_available, $expiry_date, $status, 'Expired', l('Edit', 'user/' . $account->uid . '/instance/' . $instance . '/edit'));      
+      else {
+  	  if ($result['status'] == 1 && $sessions_available > 0)
+  	    $rows[] = array($package_url, $sessions_bought, $sessions_available, $expiry_date, $status, l('Book Now', 'booking', array('query' => array('package' => $result['nid'],'instance_id' => $result['instance_id']))), l('Edit', 'user/' . $account->uid . '/instance/' . $instance . '/edit'));
+  	  else
+  	    $rows[] = array($package_url, $sessions_bought, $sessions_available, $expiry_date, $status, 'Cannot Book', l('Edit', 'user/' . $account->uid . '/instance/' . $instance . '/edit'));
+      }
+    }
+  }
+}
+  if (count($rows)) {
+    $output = theme('table', $header, $rows);
+  }
+  else {
+    $output = "<p>" . t('You have not bought any packages yet.') . "</p>";
+  }
+  
+  return $output;
+}
+
+/**
+ * Form to allow administrators to edit an instance
+ */
+function dw_instance_edit_form(&$form_state, $instance) {
+  $query = db_query("SELECT expiry, sessions FROM {dw_yoga_sessions} WHERE instance_id = %d", $instance);
+  while ($result = db_fetch_array($query)) {
+    $expiry = $result['expiry'];
+    $sessions = $result['sessions'];
+  }
+  $form['instance'] = array(
+    '#type' => 'hidden',
+    '#value' => $instance,
+  );
+  $form['validity'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Validity'),
+    '#collapsible' => FALSE,
+    '#collapsed' => FALSE,
+    '#description' => t('Expires on: ' . date('j M Y', $expiry)),
+  );
+  $form['validity']['extension'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Extend By'),
+    '#suffix' => 'days',
+    '#default_value' => 0,
+    '#size' => 2,
+    '#maxlength' => 3,
+    '#required' => TRUE,
+  );
+  $form['sessions_fieldset'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Sessions'),
+    '#collapsible' => FALSE,
+    '#collapsed' => FALSE,
+    '#description' => t('Current Number of Sessions: ' . $sessions),
+  );
+  $form['sessions_fieldset']['sessions'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Change to: '),
+    '#default_value' => $sessions,
+    '#size' => 2,
+    '#maxlength' => 4,
+    '#required' => TRUE,
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'Submit',
+  );
+  $form['#validate'] = array('is_number');
+  return $form;
+}
+
+/**
+ * Validate function to check whether the extension and number of sessions is a valid number or not
+ */
+function is_number($form, &$form_state) {
+  $extension = $form_state['values']['extension'];
+  if (!is_numeric($extension))
+    form_set_error('extension', t('Please enter a valid numeric value!'));
+  else if ($extension < 0)
+    form_set_error('extension', t('Please enter a valid numeric value!'));
+  $sessions = $form_state['values']['sessions'];
+  if (!is_numeric($sessions))
+    form_set_error('sessions', t('Please enter a valid numeric value!'));
+  else if ($sessions < 0)
+    form_set_error('sessions', t('Please enter a valid numeric value!'));
+}
+
+/**
+ * Submit handler for the edit extension form
+ */
+function dw_instance_edit_form_submit($form, $form_state) {
+  $instance = $form_state['values']['instance'];
+  $extension = $form_state['values']['extension'];
+  if ($extension != 0) {
+    $expiry = db_result(db_query("SELECT expiry FROM {dw_yoga_sessions} WHERE instance_id = %d", $instance));
+    $new_expiry = $expiry + ($extension * 24 * 60 * 60);
+    db_query("UPDATE {dw_yoga_sessions} SET expiry = %d WHERE instance_id = %d", $new_expiry, $instance);
+    drupal_set_message(t('The validity has been extended by ' . $extension . ' days.'));
+  }
+  $instance = $form_state['values']['instance'];
+  $current_sessions = db_result(db_query("SELECT sessions FROM {dw_yoga_sessions} WHERE instance_id = %d", $instance));
+  $new_sessions = $form_state['values']['sessions'];
+  if ($current_sessions != $new_sessions) {
+    db_query("UPDATE {dw_yoga_sessions} SET sessions = %d WHERE instance_id = %d", $new_sessions, $instance);
+    drupal_set_message(t('The number of sessions has been changed from ' . $current_sessions . ' to ' . $new_sessions));
+  }
+}
+
+/**
+ * Menu callback for editing an instance
+ */
+function divine_bookings_instance_edit($account, $instance) {
+  // Make sure that the instance and the user map, else, redirect to user page
+  $admin = FALSE;
+  if (user_access('modify yoga booking instances'))
+    $admin = TRUE;
+  if($admin) {
+    $exists = db_result(db_query("SELECT COUNT(*) FROM {dw_yoga_sessions} WHERE instance_id = %d", $instance));  
+  }
+  else {
+  $exists = db_result(db_query("SELECT COUNT(*) FROM {dw_yoga_sessions} WHERE uid = %d AND instance_id = %d", $account->uid, $instance));
+  }
+  if (!$exists) {
+  	drupal_set_message(t('The instance and the user do not match!'));
+  	drupal_goto('user');
+  }
+  else {
+  	// Show the link to go back to the user package listing
+    $output = '<p>' . l(t('Goto All Packages for the user'), 'user/' . $account->uid . '/packages') . '</p><br />';
+    $status = db_result(db_query("SELECT status FROM {dw_yoga_sessions} WHERE instance_id = %d", $instance));
+    $output .= drupal_get_form('dw_instance_edit_form', $instance);
+    if ($status == 0)
+      $output .= t('The instance is not active now. Do you want to activate now?') . drupal_get_form('divine_bookings_activate_form', $instance);
+    return $output;
+  }
+}
+
+/** 
+ * Implementation of hook_order, this hook is called during different stages of order processing.
+ * We want to capture it when the $op is update and $arg2 is payment_received which means
+ * Whenever an order is complete with payment received we should do our processing of creating
+ * the instance of order, check install file comments for more details on that.
+ */
+
+function divine_bookings_order($op,&$arg1,$arg2) {
+  global $user;
+  $order = $arg1;
+  $order_id=$order->order_id;
+  $tid = variable_get('trial-id');
+//  krumo($order);
+  switch($op) {
+    case 'update':
+      if($arg2 == 'payment_received') {
+        if ($order->products) {
+          $products = $order->products;
+          foreach ($products as $product) {
+          	// $product_category = db_result(db_query("SELECT tid FROM {term_node} WHERE nid = %d", $product->nid));
+            $order_product_id = $product->order_product_id;
+            // $qty = db_result(db_query("SELECT qty from uc_order_products where order_id = %d and order_product_id= %d", $order_id, $order_product_id));
+            // Order product id is unique
+            $qty = db_result(db_query("SELECT qty from uc_order_products where order_product_id= %d", $order_product_id));
+          	$is_package = db_result(db_query("SELECT count(*) FROM {term_data} AS td INNER JOIN {term_node} AS tn ON tn.tid = td.tid WHERE tn.nid = %d AND td.name IN ('Yoga Packages', 'Combo Packages', 'Diet Packages')", $product->nid));
+          	if ($is_package) {
+          	  $live_sessions = db_result(db_query("SELECT field_live_sessions_value FROM {content_type_product} WHERE nid = %d", $product->nid));              
+              // $live_sessions=$live_sessions;
+	          $validity = db_result(db_query("SELECT field_validity_value FROM {content_type_product} WHERE nid = %d", $product->nid));
+              // $validity=$validity;
+            $expiry = time() + (30 * 24 * 60 * 60);
+            
+            if ($product->nid == $tid) {
+	            db_query("INSERT INTO {dw_yoga_sessions}(product_id, uid, sessions, expiry, status) VALUES (%d, %d, %d, %d, %d)", $product->nid, $product->order_uid, $live_sessions, $expiry, 1);	          
+            }
+            else {   
+	            db_query("INSERT INTO {dw_yoga_sessions}(product_id, uid, sessions, expiry,status) VALUES (%d, %d, %d, %d, %d)", $product->nid, $product->order_uid, $live_sessions, 0, 0);              
+            }
+	          menu_rebuild();
+	          if ($product->nid == $tid) {
+             	Global $user;
+             	$uid = $user->uid;
+				    	$instnace_id_query  = db_query("Select * from dw_yoga_sessions where uid=$uid and product_id=$tid");				    	
+							$instance_id_array = db_fetch_array($instance_id_query);							
+							$instance_id = $instance_id_array['instance_id'];							
+							$query=array(								
+								'package'=>$product->nid,
+							);
+							uc_cart_empty(uc_cart_get_id());
+							drupal_goto('booking',$query);
+            }
+            }
+          }
+        }      
+      }
+  }  
+}
+
+
+/** 
+ * Implementation of hook_menu_alter to prevent user from accessing publicbookings 
+ * if the user does not have sessions available
+ */
+ /*
+function divine_bookings_menu_alter(&$items) {
+  // $items['publicbookings/request/add']['access callback'] = array('dw_publicbookings_add_access');
+//  global $user;
+//  $can_book = db_result(db_query("SELECT COUNT(*) FROM {dw_yoga_sessions} WHERE uid = %d AND sessions > 0 AND status = 1", $user->uid));
+//  if ($can_book) 
+//    $items['publicbookings/request/add']['access callback'] = TRUE;
+//  else 	
+//    $items['publicbookings/request/add']['access callback'] = FALSE;
+  $items['publicbookings/request/add']['access callback'] = 'divine_bookings_access_check';
+}
+*/
+/** 
+ * Make sure that the user has an active package before allowing him/her to book sessions
+ */
+/*
+function divine_bookings_access_check() {
+  global $user;
+  $can_book = db_result(db_query("SELECT COUNT(*) FROM {dw_yoga_sessions} WHERE uid = %d AND sessions > 0 AND status = 1", $user->uid));
+  if ($can_book)
+    return TRUE;
+  else
+    return FALSE;
+}
+
+function dw_publicbookings_add_access($string = NULL) {
+  // drupal_set_message('Je!');
+}  
+*/  
+/**
+ * Implementation of hook_form_alter().
+ * Change the booking form to incorporate package
+ */
+/*
+function divine_bookings_form_alter(&$form, &$form_state, $form_id) {
+  switch ($form_id) {
+  	case 'publicbookings_request_form':
+  	  _publicbookings_request_form_change(&$form);
+  	  break;
+  }
+}
+*/
+/**
+ * Define the form alter function for booking a resource by adding a package field
+ */
+/*
+function _publicbookings_request_form_change(&$form) {
+  // Pre-fill form with user details
+  global $user;
+  $query = db_query("SELECT fid, value FROM {profile_values} WHERE uid = %d", $user->uid);
+  $first_name = '';
+  $last_name = '';
+  $gender = 0;
+  $mobile = '';
+  while ($result = db_fetch_array($query)) {
+    $fid = $result['fid'];
+    $value = $result['value'];
+    switch ($fid) {
+      case '1':
+    	$first_name = $value;
+    	break;
+      case '3':
+    	$last_name = $value;
+    	break;
+      case '5':
+    	if ($value == 'Male') {
+    	  $gender = 2;
+    	}
+        if ($value == 'Female') {
+    	  $gender = 1;
+    	}
+    	break;
+      case '22':
+    	$mobile = $value;
+    	break;
+    }
+  }
+  $form['client']['title']['#default_value'] = $gender;
+  $form['client']['first_name']['#default_value'] = $first_name;
+  $form['client']['last_name']['#default_value'] = $last_name;
+  $form['client']['phone']['#default_value'] = $mobile;
+  $form['client']['email']['#default_value'] = $user->mail;
+
+  // Add a package field based on the purchased packages
+  $packages = array();
+  $query = db_query('SELECT node.nid, node.title FROM {dw_yoga_sessions} AS dws INNER JOIN {node} AS node ON node.nid = dws.product_id WHERE dws.uid = %d AND dws.status = 1 AND expiry > %d', $user->uid, time());
+  $i = 0;
+  while ($result = db_fetch_array($query)) {
+    $nid = $result['nid'];
+    $title = $result['title'];
+    $packages[$nid] = $title;
+    $i++;
+    if ($i == 1)
+      $default_value = $nid;
+  }
+  if (isset($_GET['package']) && !empty($_GET['package']) && is_numeric($_GET['package'])) {
+    $default_value = $_GET['package'];
+  }
+  if ($i >= 1) {
+    $form['basic']['package'] = array(
+      '#type' => 'select',
+      '#title' => t('Select Package'),
+      '#options' => $packages,
+      '#default_value' => $default_value,
+      '#description' => t('Select from the list of purchased packages'),
+      '#required' => TRUE,
+    );
+    $form['#validate'][] = 'dw_publicbookings_request_form_validate';
+  }
+  else {
+    drupal_set_message(t('You need to buy a yoga package to be able to book a session.'));
+    drupal_goto('yogaclasseslive');
+  }
+}
+*/
+/**
+ * Validate the publicbooking form and make sure only usable package is selected
+ */
+/*
+function dw_publicbookings_request_form_validate($form, $form_state) {
+  global $user;
+  $package = $form_state['values']['package'];
+  $available_sessions = db_result(db_query("SELECT sessions FROM {dw_yoga_sessions} WHERE product_id = %d AND uid = %d AND status = 1", $package, $user->uid));
+  $expiry = db_result(db_query("SELECT expiry FROM {dw_yoga_sessions} WHERE product_id = %d AND uid = %d AND status = 1", $package, $user->uid));
+  if ($available_sessions === FALSE || $available_sessions <= 0 || $expiry < time()) {
+  	form_set_error('package', t('Select a package which has not expired.'));
+  }
+}
+*/
+/**
+ * Implementation of hook_cron.
+ */
+function divine_bookings_cron() {
+  db_query("UPDATE {dw_yoga_sessions} SET status = 0 WHERE expiry < %d AND status = 1", time());
+}
+
+

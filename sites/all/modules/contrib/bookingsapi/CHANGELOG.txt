@@ -1,0 +1,98 @@
+
+#1036250 by developer-x: Added new capabilities of the Date module
+by tirsales: Added bookingsapi participated as submodule
+by tirsales: Variable-list now localizable
+bug #944694 by tirsales: Added possibility to set 'year range' in bookings
+by developer-x: Fixed strange reference-bug in bookingsapi.module
+
+Bookings API 6.x-3.0-alpha1, 2010-10-15
+------------------------------
+by tirsales: Added 'bookable'-option to resource lists
+by tirsales: Fixed a set of 'free cache'-problems occuring on resource change
+by tirsales: Fixed recent (wrong) PublicBookings-dependency
+by tirsales: VIEWS-integration now with resources again
+by tirsales: VIEWS-integration now allows to select start/end as argument
+by tirsales: Free Cache now reacting properly on "new resource"
+by tirsales: Fixed another set of 'free cache'-problems
+by tirsales: Added possibility to change resource of a booking
+by tirsales: bookingsapi_booking_list now allows single status
+by tirsales: Added possibility to display resources as hierarchical list
+  This allows a more client-friendly display of resources in the resource-selection
+by tirsales: Fixed a bug leading after changing the booking_save-spec
+by tirsales: Added list of variables (e.g. for AJAX-Config)
+by tirsales: time() -> date_convert(date_now(),DATE_OBJECT,DATE_UNIX)
+by tirsales: Some additional query-methods
+bug #811906 by tirsales: Fixed non-working table-prefix problem
+bug #808788 by tirsales: Fixed __clone not supported error
+bug #809222 by tirsales: Fixed display of 'rigid' availabilities
+by tirsales: Starting work on 'min time before a booking'
+by tirsales: Fixed a couple of mini-bugs
+by tirsales: Beginning work on bookingsapi.date.inc
+by tirsales: Fixed various bugs.
+by tirsales: Various.
+bug #677900 by tirsales: Fixed syntax-error in bookingsapi.install
+bug #557744 by tirsales: Fixed error in bookings_records schema
+by tirsales: Added bookingsapi_direct_button
+by tirsales: Added bookingsapi_free_cache (NON WORKING!)
+by tirsales: Rewriting conflict checking to integrate hook
+by tirsales: Rewriting AJAX
+by tirsales: Fixed bug in bookingsapi_resource_get_childs
+by tirsales: Continueing rewrite of conflict check, fixed typo in the field
+  definitions of bookings_resource, API-change for conflict_check
+by tirsales: Added bookings_free_cache and bookings_booking_list
+by tirsales: Rewriting bookingsapi_conflict_check - completely untested
+by tirsales: Added content-type update for default_availability
+by tirsales: Removed STRICT availabilites
+by tirsales: Added updater from 6.x-1.0 to 6.x-3.0 (for resources)
+by tirsales: Rewrite of resources to node-based version
+by tirsales: Fixed unstructured access to resources table
+Copied 6.x-1.0-alpha5 to 6-3
+
+Bookings API 6.x-1.0-alpha5, 2009-09-24
+----------------------------
+feature #562398 by tirsales: Bookings can now (optionally) conflict with
+  unconfirmed bookings
+by tirsales: Availability display now lists date instead of timestamp
+
+Bookings API 6.x-1.0-alpha4, 2009-06-26
+-----------------------------
+by tirsales: Fixed bookingsapi.pot
+bug #468720 by tirsales: Fixed reference-bug when calling bookingsapi_extend
+by tirsales: Added $status to record_status_change-hook
+by tirsales: Fixed rules-condition resource_change 
+by tirsales: Fixed translations
+
+Bookings API 6.x-1.0-alpha3, 2009-06-05
+-----------------------------
+bug #429262 by tirsales: Fixed reserved keyword column name and missing default
+feature #468720 by tirsales: Added bookingsapi_rules
+by tirsales: Added some phpdoc to bookingsapi.module
+by tirsales: Added bookingsapi_trigger
+by tirsales: Fixed error in bookingsapi_booking_save (insert/update swaped)
+  Added call to bookingsapi_record_status_change when saving a booking
+bug #463530 by tirsales: Fixed critical bug in bookingsapi_record_status_change
+bug #429262 by tirsales: Fixed notice-level bug in bookingsapi_resource_form
+by tirsales: Added variable_del to bookingsapi_uninstall
+by tirsales: Fixed (outdated) patch-list in README.txt
+
+Bookings API 6.x-1.0-alpha2, 2009-04-10
+------------------------------
+by tirsales: Added translations/bookingsapi.pot
+by tirsales: Fixed bugs related to changes in record_types and record_status
+by tirsales: Added bookingsapi_numeric_record_status and 
+  bookingspi_numeric_record_types
+task #418870 by tirsales: booking-page now displays error when no resources are
+  present.
+bug #419946 by tirsales: Fixed bug in bookingsapi_availabiliy_save
+by tirsales: Fixed bug in bookingsapi_record_types 
+  (now returns string on int param). Also fixed in bookingsapi_form.inc
+by tirsales: Fixed bug in bookingsapi_record_status 
+  (now returns string on int param). Also fixed in bookingsapi_form.inc
+by tirsales: Added update-method from ALPHA1 and DEV
+#341387 by tirsales: fixed bug in bookingsapi_conflict_check
+
+by c.lam, dwees: Multiple changes
+
+Bookings API 6.x-1.0-alpha1, 2008-07-08
+------------------------------
+

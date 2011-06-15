@@ -1,0 +1,75 @@
+<?php
+
+class SmartQueueUsersTest extends DrupalWebTestCase {
+  function getInfo() {
+    return array('name' => 'SmartQueueUsers Test',
+                 'desc' => t('Test Smartqueue_users'),
+                 'group' => 'SmartQueueUsers',
+    );
+  }
+  //assumes there is a story content type
+  //create a story node
+  function setUp() {
+    parent::setUp('nodequeue', 'smartqueue_users');
+  } 
+  function tearDown() {
+    nodequeue_delete($this->qid);
+    parent::tearDown();
+  }
+
+  /*
+   * Tests ability to submit the edit queue form and that this results in batch subqueue creation.
+   */
+  function testAdminConfigure() {
+    $this->admin_user = $this->drupalCreateUser(array('access comments', 'access content', 'post comments', 'post comments without approval', 'manipulate queues', 'administer nodequeue', 'manipulate own user queue', 'view own user queue on user profile page', 'view all user queues on profile pages'));
+    $this->regular_user = $this->drupalCreateUser(array('access comments', 'access content', 'post comments', 'post comments without approval', 'manipulate queues', 'view own user queue on user profile page',));
+    $this->drupalLogin($this->admin_user);
+    $add = "add to %subqueue";  
+    $remove = "remove from %subqueue";
+    $edit = array (
+      'title' => 'Test User Queue',
+      'subqueue_title' => '%subqueue Queue',
+      'size' => '0',
+      'link' => $add,
+      'link_remove' => $remove,
+      'roles[2]' => '2',
+      'types[story]' => 'story',
+      'submit_actions[create]' => 1,
+    );
+    $this->drupalGet('admin/content/nodequeue/add/smartqueue_users');
+    $this->drupalPost('admin/content/nodequeue/add/smartqueue_users', $edit, 'Submit');
+
+
+    $this->qid = smartqueue_users_get_qid();
+    $this->assertFalse(empty($this->qid), t('Verifing that qid is not empty, ='. $this->qid));
+     
+    $this->regular_user_queue = (array)smartqueue_users_load_subqueue_by_uid($this->regular_user->uid);
+    $this->regular_user_queue = array_shift($this->regular_user_queue);
+    $this->assertFalse(empty($this->regular_user_queue), t('[Smartqueue per-user] Verifying that regular user queue is not empty'));
+    $this->assertEqual($this->qid, $this->regular_user_queue->qid, $message= t("[Smartqueue per-user] Verify user's subqueue has the correct qid ($this->qid)."));
+    $this->assertTrue(substr($this->regular_user_queue->title, $this->regular_user->name), t("[Smartqeueue per-user] Regular user's queue title contains the user's name."));
+/*
+    $this->admin_user_queue = (array)smartqueue_users_load_subqueue_by_uid($this->admin_user->uid);
+    $this->admin_user_queue = array_shift($this->admin_user_queue);
+    $this->assertFalse(empty($this->admin_user_queue), t('[Smartqueue per-user Verifying that regular user queue is not empty'));
+    $this->assertEqual($this->qid, $this->admin_user_queue->qid, $message= t("[Smartqueue per-user] Verify user's subqueue has the correct qid ($this->qid)."));
+    $this->assertTrue(substr($this->admin_user_queue->title, $this->admin_user->name), t("[Smartqeueue per-user] Regular user's queue title contains the user's name."));
+*/
+  }
+
+  function testRegularUserLinks() {
+    $this->drupalLogin($this->admin_user);
+    $edit['title'] = $this->randomName(32);
+    $edit['body']  = $this->randomName(32);
+    $this->drupalPost('node/add/story', $edit, t('Save'));
+    $this->test_node = node_load(array('title' => $edit['title']));
+    $url = url('logout', array('absolute' => TRUE));
+    $this->drupalGet($url);
+
+    $this->drupalLogin($this->regular_user);
+    $this->drupalGet('node/'. $this_test_node->nid);
+    $this->assertText("add to". $this->regular_user->name . "'s Queue", t("[Smartqueue per-user] Regular user sees add to queue link)"));
+  }
+
+
+}

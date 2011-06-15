@@ -20,7 +20,13 @@ function divine_guru_package_access($op, $account) {
     else {
       return NULL;
     }
-  } 
+  }
+  else{
+    if (!user_access('access content', $account)) {
+    return FALSE;
+   }
+   return true;
+  }
 }
 
 /**
@@ -43,7 +49,23 @@ function divine_guru_package_menu() {
 	'access arguments' => array('manage mapping'),
 	);
 
+	$items['meet-the-gurus'] = array(
+		'title' => 'Meet the Teachers',
+		'type' => MENU_CALLBACK,
+		'access arguments' => array('access content'),
+		'page callback' => 'display_guru_list');
+
   return $items;
+}
+
+/**
+ * Implementation of hook_init().
+ */
+function divine_guru_package_init(){
+  //SET DEFAULT TIMEZONE TO UTC
+  date_default_timezone_set("UTC");
+  //CLEAN (ERASE) THE OUTPUT BUFFER AND TURN OFF OUTPUT BUFFERING
+  ob_end_clean();
 }
 
 /**
@@ -137,7 +159,9 @@ function enter_mapping_form($error='') {
 
   $rows=array();
   $flag=false;
+
   while ($row = db_fetch_object($db_result)) {
+
       $flag=true;
       $checked='';
       $style='';
@@ -173,7 +197,7 @@ function enter_mapping_form($error='') {
               '.$specialImage.'
               <tr><td colspan="2">'.l(t($nodeArr->title),'node/'.$row->nid).'</td></tr>
 	      <tr><td rowspan="4" width="15%">'.$image.'<td><tr>
-	      <tr><td>'.$nodeArr->body.'</td></tr>
+	      <tr><td>'.strip_tags ($nodeArr->teaser).'</td></tr>
 	      <tr>
 	        <td>
 		   <b>Validity: </b>'.$nodeArr->field_validity[0]['value'].' Days &nbsp;
@@ -204,7 +228,6 @@ function enter_mapping_form($error='') {
 
     $form_end='</form>';
   }
-
   return $form_start
          .theme('table', $header, $rows)
 	 .$submit_button
@@ -292,5 +315,100 @@ function save_mapping(){
    drupal_set_message('De-assigning of packages is successful');
   }
   drupal_goto('guru-package/package/0');
+}
+
+
+/**
+* This funuction is used to display list of gurus.
+*/
+function display_guru_list()
+{
+    global $base_url;
+    
+    $header = array(
+                     ' '
+		   );
+    $rows=array();
+    
+
+    $query="select 
+		   u.uid 
+	    from 
+		  {users} u,{users_roles} ur, {role} r
+	    where
+		   u.uid=ur.uid
+		   and ur.rid=r.rid
+		   and r.name='expert'
+		   and u.status=1
+	   ";
+    
+    $total_query="select 
+                          count(u.uid)
+ 	          from    
+		         {users} u,{users_roles} ur, {role} r
+	          where
+		          u.uid=ur.uid
+		          and ur.rid=r.rid
+		          and r.name='expert'
+		          and u.status=1
+		";
+    
+    $nodes_per_page = 10; 
+
+    $query_result = pager_query($query,$nodes_per_page,0,$total_query);
+     
+    $rows = array();
+    $flag=0;
+
+    while ($obj = db_fetch_object($query_result)) {
+      $flag=1;
+      $guruArray = user_load($obj->uid);
+      
+      $guruName = $guruArray->profile_inst_fname.' '.$guruArray->profile_inst_lname;
+      $guruDesc = $guruArray->profile_inst_desc;
+     
+      $width = '100px';
+      $profile_image_path=$guruArray->picture;
+      if(file_exists($profile_image_path)){
+	$dimension=variable_get('user_picture_dimensions','');
+	$dimension_array=explode('x',$dimension);
+	$width=$dimension_array[0].'px';
+	$profile_image = '<img src="'.$base_url.'/'.$guruArray->picture.'" style="'.$width.'" />';
+      }
+      else{
+	$profile_image = '<img src="'.$base_url.'/sites/default/noimage.png" style="'.$width.'" />';
+      }
+
+      $teachingExp = $guruArray->profile_inst_teaching_exp;
+      $yogaStyle   = $guruArray->profile_inst_yoga_style;
+
+      $tableString  = '<table border="0" cellpadding="0" cellspacing="0">';
+      $tableString .= '<tr>
+                           <td rowspan="3" align="center" valign="middle" width="'.$width.'">'.$profile_image.'</td>
+			   <td>'.t($guruName).'</td>
+		       </tr>';
+      $tableString .=  '<tr>
+                         <td>
+			  <div style="width:300px;height:150px;overflow:auto">'.t($guruDesc).'</div>
+			 </td>
+			</tr>';
+      $tableString .=  '<tr>
+                         <td>
+			  '.t("Teaching Exp").' : '.$teachingExp.'&nbsp;&nbsp;&nbsp;'.t("Yoga Style").' : '.$yogaStyle.' 
+			 </td>
+			</tr>';
+      $tableString .= '</table>'; 
+     
+      $rows[] =array('date' => $tableString);
+    }
+
+    if(!$flag){
+      $rows=array(); 
+      $rows[]=array(
+                    array('data'=>'<b>'.t("No Teachers Found").'</b>','colspan'=>1,'style'=>'text-align:center')
+		   );
+    }
+
+    return theme('table', $header, $rows).theme('pager', NULL, $nodes_per_page,0);
 }
 ?>

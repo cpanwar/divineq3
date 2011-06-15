@@ -1,0 +1,27 @@
+<?php
+
+
+function publicbookings_adminresource_install() {
+  publicbookings_adminresource_update_resource_type();  
+  db_query("UPDATE {system} SET weight = -2 WHERE name = 'publicbookings_adminresource'");
+}
+
+function publicbookings_adminresource_update_resource_type() {
+	module_load_include('module','content_copy', 'content_copy');
+
+  // See http://groups.drupal.org/node/5272#comment-54181
+  $filename = drupal_get_path('module','publicbookings_adminresource') . "/publicbookings_adminresource.cck";
+  watchdog("PB Adminresource Install","Filename: $filename");
+  $content  = implode('', file($filename) );
+
+  $form_state = array(
+    'values' => array(
+      'type_name' => BOOKINGSAPI_RESOURCE_TYPE,
+      'macro'     => $content,
+      ),
+    );
+
+  return drupal_execute("content_copy_import_form", $form_state);
+}
+
+function publicbookings_adminresource_uninstall() {}

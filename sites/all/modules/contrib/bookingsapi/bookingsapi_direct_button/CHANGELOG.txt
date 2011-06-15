@@ -1,0 +1,4 @@
+
+by tirsales: Fixed mistake in bookingsapi_direct_button_nodeapi
+by tirsales: Extracted from Bookings API
+

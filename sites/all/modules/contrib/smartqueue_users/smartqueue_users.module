@@ -1,0 +1,473 @@
+<?php
+
+function smartqueue_users_eligible_perms() {
+  return array('manipulate own user queue', 'manipulate all user queues');
+}
+function smartqueue_users_init() {
+ if (module_exists('views')) {
+    include_once drupal_get_path('module', 'smartqueue_users') . '/smartqueue_users_views.inc';
+  }
+}
+/**
+ * Implementation of hook_nodequeue_info()
+ */
+function smartqueue_users_nodequeue_info() {
+  return array('smartqueue_users' =>
+    array(
+      'title' => t('Smartqueue per User'),
+      'description' => t('Provides a Node Queue for each user of one or more specified roles.'),
+    )
+  );
+}
+
+/**
+ * Implementation of hook_nodequeue()
+ */
+function smartqueue_users_nodequeue_form($queue, &$form) {
+  $qid = isset($qid) ? $queue->qid : 0;
+  /*
+  $form['placeholder']['sq_title'] = array(
+    '#type' => 'textfield',
+    '#name' => t('Subqueue Titles'),
+    '#description' => t("Leave blank for [username]'s Queue or specify a static name for all subqueues."),
+  );
+  */
+  $form['restrict_by_author'] = array(
+    '#type' => 'checkbox',
+    '#title' => t("Restrict contents of user NodeQueue to content that is created by the NodeQueue's owner"),
+    '#description' => t("When this box is checked, each User SubQueue can only contain content created by that NodeQueue's author."),
+    '#default_value' => variable_get('smartqueue_users_sq_'. $qid .'_restrict_author', 0),
+    '#weight' => 1,
+  );
+  $form['display_user_page'] = array(
+    '#type' => 'checkbox',
+    '#title' => t("Display User Node Queues on User (profile) pages."),
+    '#default_value' => module_exists('views') && variable_get('display_user_page'. $qid .'_restrict_author', 1),
+    '#description' => t("Requires the Views module to be enabled."),
+    '#weight' => 1,
+    '#disabled' => !(module_exists('views')),
+  );
+  $form['admin_hide_links'] = array(
+    '#type'=> 'checkbox',
+    '#title' => t("Hide other users' add/remove links from administrators (Recommended)"),
+    '#description' => t("When checked, users with the 'manipulate all user node queues' permission will not see add/remove links for other users' node queues. Useful for preventing Administrators from seeing an overwhelming number of links. This can also be a performance improvement for sites with large numbers of user node queues."),
+    '#default_value' => variable_get('smartqueue_users_'. $qid . '_admin_hide_links', 1),
+  );
+  
+  $form['submit_actions'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Batch operations to perform when this form is submitted:'),
+    '#weight' => 8,
+    '#tree' => TRUE,
+  );
+  $form['submit_actions']['destroy'] = array(
+    '#type' => 'radios',
+    '#title' => 'For User-NodeQueues for roles that should no longer have nodequeues',
+    '#options' => array(
+      //'disable' => t('Disable these NodeQueues'), This isn't possible on a per-SubQueue basis with the current Node Queue API.
+      'delete' => t('Delete these NodeQueues'),
+      'nothing' => t('Take no action on these NodeQueues'),
+    ),
+  );
+
+  //TODO: Give this checkbox a proper label.
+  $form['submit_actions']['create'] = array(
+    '#prefix' => "<label>". t("For Users of the above-specified roles who do not yet have user NodeQueues:") ."</label>",
+    '#type' => 'checkbox',
+    '#title' => t('Create new NodeQueues'),
+    '#default_value' => 0,
+  );
+}
+
+/**
+ * Returns a list of eligible nodequeues for $account.
+ */
+function smartqueue_users_get_eligible_queues($account) {
+  $qids = array();
+  
+  $account_roles = array_keys($account->roles);
+  $queue_ids = db_query("SELECT nq.qid FROM {nodequeue_queue} nq INNER JOIN {nodequeue_roles} nqr ON nqr.qid = nq.qid WHERE nqr.rid IN (". db_placeholders($account_roles, 'int') .") AND nq.owner = 'smartqueue_users'", $account_roles);
+  
+  while ($row = db_fetch_object($queue_ids)) {
+      $qids[] = $row->qid;
+  }
+  
+  return $qids;
+}
+
+
+function _smartqueue_users_all_eligible_roles($qid = NULL) {
+  if ($qid) {
+    $qids = array($qid);
+  }
+  else {
+    // By default we'll return a list of all roles eligible for any smartqueues.
+    $smartqueues = db_query("SELECT qid FROM {nodequeue_queues} WHERE owner = 'smartqueue_users'");
+    while ($smartqueue = db_fetch_object($smartqueues)) {
+      $qids[] = $smartqueue->qid;
+    }
+  }
+  
+  foreach ($qids as $smartqueue_id) {
+    $queue = nodequeue_load($smartqueue_id);
+    if (!empty($queue->roles)) {
+      $q_roles = $queue->roles;
+      $roles = array();
+      //create a normalized roles array
+      foreach ($q_roles as $key => $rid) {
+        $roles[$rid] = $rid;
+      }
+    }
+  }
+  return $roles;
+}
+function _smartqueue_users_get_eligible_accounts($qid, $roles = NULL) {
+  
+  $accounts = array();
+  if (empty($roles)) {
+    $roles = _smartqueue_users_all_eligible_roles();
+    if (empty($roles)) {
+      return array();
+    }
+  }
+  $all_auth = ($roles[2] == 2);
+  if ($all_auth) {
+    $users = array();
+    //Don't restrict to status = 1 because we might want to include these users when deciding to batch delete SubQueues.
+    $query = db_query("SELECT uid, name FROM {users} WHERE uid > 0");
+    
+    while ($u = db_fetch_array($query)) {
+      $accounts[$u['uid']] = $u['name'];
+    }
+    
+    return $accounts;
+  }
+  else {
+    //The array key always contains the rid. Depending on the format of the roles array, enabled roles have either the rid or 1 as the value.
+    foreach ($roles as $key => $value) {
+      if ($key == $value) {
+        $sql_roles[] = $value;
+      }
+    }
+    
+    $query = db_query("SELECT u.uid, u.name FROM {users} u INNER JOIN {users_roles} r ON u.uid=r.uid WHERE r.rid IN(". db_placeholders($sql_roles, 'int') .")", $sql_roles);
+  }
+  $result = array();
+  while ($result = db_fetch_array($query)) {
+    $accounts[$result['uid']] = $result['name'];
+  }
+  return $accounts;
+}
+
+function smartqueue_users_nodequeue_form_submit(&$queue, $form_state) {
+ 
+  
+}
+
+function smartqueue_users_nodequeue_form_submit_finish(&$queue, $form_state) {
+  if ($form_state['values']['submit_actions']['create'] == 1) {
+    // Set 
+    variable_set('smartqueue_users_sq_'. $queue->qid .'_restrict_author', $form_state['values']['restrict_by_author']);
+    variable_set('display_user_page'. $queue->qid .'_restrict_author', $form_state['values']['display_user_page']);
+    variable_set('smartqueue_users_'. $queue->qid .'_display_user_page', $form_state['values']['display_user_page']);
+    variable_set('smartqueue_users_'. $queue->qid . '_admin_hide_links', $form_state['values']['admin_hide_links']);
+     
+    $accounts = _smartqueue_users_get_eligible_accounts($queue->qid, $form_state['values']['roles']);
+    $existing_subqueues = smartqueue_users_get_all_user_subqueues($queue->qid);
+    $accounts_without_subqueues = array_diff_key($accounts, $existing_subqueues);
+    smartqueue_users_batch_add_subqueues($accounts_without_subqueues, $queue);
+  }
+  switch ($form_state['values']['submit_actions']['destroy']) {
+    case 'delete':
+      variable_del('smartqueue_users_sq_'. $form_state['values']['qid'] .'_restrict_author');
+      variable_del('display_user_page'. $form_state['values']['qid'] .'_restrict_author');
+      variable_del('smartqueue_users_'. $form_state['values']['qid'] .'_display_user_page');
+      variable_del('smartqueue_users_'. $form_state['values']['qid'] . '_admin_hide_links');
+      
+      drupal_goto('admin/content/nodequeue/smartqueue_users/batch_delete/'. $form_state['values']['qid']);
+      break;
+    //case 'disable':
+      //smartqueue_users_batch_disable_subqueues(array_values($extra_subqueues);
+  }
+}
+function smartqueue_users_subqueue_access($subqueue, $account = NULL, $queue = NULL) {
+  if (!$account) {
+    global $user;
+    $account = $user;
+  }
+
+  $access_all = (user_access("manipulate all queues", $account) || user_access('manipulate all user queues', $account));
+  $access_own = user_access('manipulate own user queue', $account);
+
+  if (!($access_all || ($access_own && $account->uid == $subqueue->reference))) {
+    return FALSE;
+  }
+}
+
+//this function is getting the wrong args:
+function smartqueue_users_queue_access($queue, $account = NULL) {
+  if (!$account) {
+    global $user;
+    $account = $user;
+  }
+  $access_all = (user_access('manipulate all queues', $account) || user_access('manipulate all user queues', $account));
+  $access_own = user_access('manipulate own user queue', $account);
+
+  if ($access_all || $access_own) {
+    return TRUE;
+  }
+}
+/**
+ * Implementation of hook_nodequeue_subqueues()
+ */
+function smartqueue_users_nodequeue_subqueues(&$queue, $node) {
+  $references = array();
+  global $user;
+  $restrict_by_author = variable_get('smartqueue_users_sq_'. $queue->qid .'_restrict_author', 0);
+  $access_own = user_access('manipulate own user queue');
+  $admin_hide_links = variable_get('smartqueue_users_'. $queue->qid . '_admin_hide_links', 1);
+  /*
+  if (user_access("manipulate all queues" || user_access('manipulate all user queues'))) {
+    $access_all = TRUE;
+  }
+  */
+  $access_all = (user_access("manipulate all queues") || user_access('manipulate all user queues'));
+  if ($restrict_by_author == 1) {
+    //all queues
+    //all user queues
+    //own queue and this is your queue
+    if ($access_all || ($access_own && $user->uid == $node->uid)) {
+      return array($node->uid);
+    }
+  }
+
+  else {
+    if ($access_own && (!$access_all || $admin_hide_links)) {
+      return db_result(db_query("SELECT reference FROM {nodequeue_subqueue} WHERE qid = %d AND reference = %d", $queue->qid, $user->uid));
+    }
+    if ($access_all && !$admin_hide_links) {
+      //the uid of everyone with a subqueue.
+      //TODO: Cache this variable.
+      $query = db_query("SELECT reference FROM {nodequeue_subqueue} WHERE qid = %d", $queue->qid);
+      while ($result = db_fetch_object($query)) {
+        $references[] = $result->reference;
+      } 
+    }
+  }
+  return $references;
+}
+
+function smartqueue_users_load_subqueue_by_uid($qid, $uid = NULL) {
+  if (!$uid) {
+    global $user;
+    $uid = $user->uid;
+  }
+  return nodequeue_load_subqueues_by_reference(array($qid => array(0 => $uid)));
+  
+}
+
+function smartqueue_users_menu() {
+  $items['admin/content/nodequeue/smartqueue_users/batch_delete/%nodequeue'] = array(
+    'title' => t('Confirm Smartqueue Users Batch Queue Deletion'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('smartqueue_users_batch_delete_subqueues_confirm', 5),
+    'access callback' => 'smartqueue_users_batch_delete_access',
+  );
+  return $items;
+}
+
+function smartqueue_users_batch_delete_access() {
+  return (user_access('manipulate all queues' || user_access('manipulate all user queues')));
+}
+
+function smartqueue_users_user($op, &$edit, &$account, $category = NULL) {
+  global $user;
+  switch ($op) {
+    case 'insert':
+      $queues = smartqueue_users_get_eligible_queues($account);
+      if (!empty($queues)) {
+        foreach($queues as $qid) {
+          $existing_subqueue = smartqueue_users_load_subqueue_by_uid($qid, $account->uid);
+          if (!empty($existing_subqueue)) {
+              drupal_set_message(t('Skipped creating a subqueue for user %name with uid @uid because one already existed with qid @qid.', array('%name' => $account->name, '@uid' => $account->uid, '@qid' => $existing_sq->qid)));
+          }
+          else {
+            //Create a new subqueue for the user. -- Abstract this out to its own function if\when rules for User SubQueue names get more complicated.
+            $queue = nodequeue_load($qid);
+            
+            nodequeue_add_subqueue($queue, $account->name ."'s ". $queue->title, $account->uid);
+            if (user_access('administer nodequeue') || user_access('manipulate all queues') || user_access('manipulate all user queues')) {
+              drupal_set_message(t("Added Subqueue."));
+            }
+          }
+        }
+      }
+      break;
+    case 'update':
+      $qids = smartqueue_users_get_qids();
+      foreach ($qids as $qid) {
+        $existing_subqueue = smartqueue_users_load_subqueue_by_uid($qid, $account->uid);
+        //TODO: Udate subqueue name when user's name is updated.
+        if (!empty($existing_sq->qid)  && $existing_sq->name != $account->name ."'s ". $queue->title) {
+          nodequeue_subqueue_update_title($existing_sq->id, $account->name ."'s ". $queue->title);
+        }
+      }
+      break;
+    case 'delete':
+      $qids = smartqueue_users_get_qids();
+      foreach ($qids as $qid) {
+        $existing_subqueue = smartqueue_users_load_subqueue_by_uid($qid, $account->uid);
+        //Delete this user's SubQueue if it exists.
+        if (!empty($existing_subqueue)) {
+          nodequeue_remove_subqueue($existing_subqueue->qid);
+          drupal_set_message("Deleted SubQueue.");
+        }
+      }
+      break;
+    case 'view':
+      unset($access);
+      $qids = smartqueue_users_get_qids();
+      $access = ((user_access('view own user queue on user profile page') && $account->uid == $user->uid) || user_access('view all user queues on profile pages'));
+      foreach ($qids as $qid) {
+        if (module_exists('views') && variable_get('smartqueue_users_'. $qid .'_display_user_page', 1) && $access) {
+          $queue = nodequeue_load($qid);
+          $output = views_embed_view('smartqueue_users_user_'. $queue->qid, 'default', $account->uid);
+          if ($user->uid == $account->uid) {
+            $sq = smartqueue_users_load_subqueue_by_uid($qid, $account->uid);
+            if (is_array($sq) && !empty($sq) && user_access('manipulate own user queue')) {
+              $sq = array_shift($sq);
+              $output .= l('Manipulate this Node Queue', 'admin/content/nodequeue/'. $sq->qid .'/view/'. $sq->sqid);
+            }
+          }
+          $account->content['summary']['smartqueue_users_'. $queue->qid] = array(
+            '#type' => 'user_profile_item',
+            '#title' => t($queue->title),
+            '#value' => $output,
+            '#attributes' => 'smartqueue_user_queue',
+          );
+        }
+      }
+  }
+}
+
+function smartqueue_users_form_alter(&$form, $form_state, $form_id) {
+  switch ($form_id) {
+    case 'nodequeue_edit_queue_form':
+      if ($form['owner']['#value'] == 'smartqueue_users') {
+        $form['description']['#weight'] = -1;
+        $form['title']['#weight'] = -1;
+        $form['submit']['#weight'] = 9;
+        $form[0]['#weight'] = 9; // the Delete button.
+  
+      }
+      break;
+    case 'user_confirm_delete':
+    case 'user_multiple_delete_confirm':
+      $accounts = array();
+      $accounts = $form['#post']['accounts']; // **NOTE** Verify that this is secure.
+      $existing_queues = smartqueue_users_load_subqueues_by_uid($accounts);
+      //Display a warning message if this user has a NodeQueue that will be deleted.
+      if (!empty($existing_queues)) {
+        //TODO: Make this message more informative.
+        drupal_set_message(t("Node Queues will be deleted."), 'status');
+      }
+      break;
+  }
+}
+
+function smartqueue_users_perm() {
+  return array('manipulate own user queue', 'manipulate all user queues', 'view own user queue on user profile page', 'view all user queues on profile pages');
+}
+
+function smartqueue_users_get_qids() {
+  static $qids;
+  if (!isset($qid)) {
+    $qid_list = db_query("SELECT qid FROM {nodequeue_queue} WHERE owner = 'smartqueue_users'");
+    while ($qid = db_fetch_object($qid_list)) {
+      $qids[] = $qid->qid;
+    }
+  }
+  
+  return $qids;
+}
+
+//TODO - Make sure to document this function, especially $uids
+function smartqueue_users_load_subqueues_by_uid($uids) {
+  $qids = smartqueue_users_get_qids();
+  if (empty($qids) || !isset($uids)) {
+    //Return if smartqueue_users has no NodeQueue or no uids are provided.
+    return;
+  }
+  else {
+    if (!is_array($uids)) {
+      //Add the single UID into an array of accounts to use as SubQueue references.
+      $uids[] = $uids;
+    }
+    
+    if (is_array($qids)) {
+      foreach ($qids as $qid) {
+        $params[] = $uids;
+      }
+    }
+    //$queue = array_shift(nodequeue_load_queues(array($qid => $qid)));
+    $existing_sqs = nodequeue_load_subqueues_by_reference($params);
+    return $existing_sqs;
+  }
+}
+
+function smartqueue_users_batch_update_subqueues($roles, $actions) {
+  
+}
+
+function smartqueue_users_batch_add_subqueues($accounts, &$queue) {
+  foreach ($accounts as $uid => $name) {
+    $sq = nodequeue_add_subqueue($queue, $name ."'s ". $queue->title, $uid);
+    drupal_set_message(t("Added Node Queue: @title", array('@title' => $name ."'s ". $queue->title)));
+  }
+}
+
+function smartqueue_users_batch_delete_subqueues_confirm($queue) {
+  $qid = $queue->qid;
+  $accounts = _smartqueue_users_get_eligible_accounts($qid);
+  $existing_subqueues = smartqueue_users_get_all_user_subqueues($qid);
+  $extra_subqueues = array_diff_key($existing_subqueues, $accounts);
+  if (empty($extra_subqueues)) {
+    drupal_set_message(t("There are no extra subqueues to delete."));
+    drupal_goto('admin/content/nodequeue/'. $qid .'/edit');
+  }
+  
+  $form['extra_subqueues'] = array(
+    '#type' => 'value',
+    '#value' => $extra_subqueues,
+  );
+  return confirm_form($form, t("Are you sure you wish to batch delete extra subqueues?"), 'admin/content/nodequeue/'. $qid .'/edit', NULL, 'Confirm', 'Cancel', 'smartqueue_users_batch_delete_confirm');
+}
+
+function smartqueue_users_batch_delete_subqueues_confirm_submit($form_id, $form_values) {
+ //do the deletion
+  smartqueue_users_batch_delete_subqueues($form_values['extra_subqueues']);
+  return 'admin/content/nodequeue';
+}
+function smartqueue_users_batch_delete_subqueues($sq_ids = array()) {
+  //get sqids from the form
+  if (count($sq_ids) > 0) {
+    //@TODO: Add confirmation dialogue
+    $in = implode(', ', array_fill(0, count($sq_ids), "%d"));
+    db_query("DELETE FROM {nodequeue_subqueue} WHERE sqid IN($in)", $sq_ids);
+    db_query("DELETE FROM {nodequeue_nodes} WHERE sqid IN($in)", $sq_ids);
+  }
+  else {
+    drupal_set_message("No SubQueues to delete.");
+  }
+}
+
+function smartqueue_users_get_all_user_subqueues($qid) {
+  if ($qid) {
+    $subqueues = array();
+    $query = db_query("SELECT sqid, reference FROM {nodequeue_subqueue} WHERE qid = %d", $qid);
+    while ($result = db_fetch_array($query)) {
+      $subqueues[$result['reference']] = $result['sqid'];
+    }
+  }
+  return $subqueues;
+}

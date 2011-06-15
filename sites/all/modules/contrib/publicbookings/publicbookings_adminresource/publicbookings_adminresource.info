@@ -1,0 +1,18 @@
+name = "Public Bookings Adminresource"
+info = "Public Bookings Adminresource extension"
+description = "Allows to make resources 'admin-only' bookable"
+
+package = "Bookings"
+core = 6.x
+
+dependencies[] = publicbookings
+dependencies[] = text
+dependencies[] = content
+dependencies[] = optionwidgets
+
+; Information added by drupal.org packaging script on 2011-02-26
+version = "6.x-3.0-alpha2"
+core = "6.x"
+project = "publicbookings"
+datestamp = "1298742971"
+

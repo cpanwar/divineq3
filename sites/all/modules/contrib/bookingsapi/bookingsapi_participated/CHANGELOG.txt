@@ -1,0 +1,4 @@
+
+by tirsales: Added bookingsapi participated as submodule
+
+Bookings API 6.x-3.0-alpha1, 2010-10-15

@@ -1,0 +1,321 @@
+<?php
+
+/**
+ * Implementation of hook_install().
+ */
+function publicbookings_install() {
+
+  // Create tables.
+  drupal_install_schema('publicbookings');
+
+  // Make sure this module loads after bookings API.
+  db_query("UPDATE {system} SET weight = 2 WHERE name = 'publicbookings'");
+
+  publicbookings_variable_init();
+
+  menu_rebuild();
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function publicbookings_uninstall() {
+  // remove tables
+  drupal_uninstall_schema('publicbookings');
+  // delete vars
+  variable_del('publicbookings_enabled');
+  variable_del('publicbookings_sendmail');
+  variable_del('publicbookings_notify');
+  variable_del('publicbookings_notify_address');
+  variable_del('publicbookings_finalized_after_confirm');
+  variable_del('publicbookings_all_body_header');
+  variable_del('publicbookings_all_body_footer');
+  variable_del('publicbookings_all_subject_prefix');
+  variable_del('publicbookings_all_subject_postfix');
+  variable_del('publicbookings_request_confirm_subject');
+  variable_del('publicbookings_request_confirm_body');
+  variable_del('publicbookings_request_pending_subject');
+  variable_del('publicbookings_request_pending_body');
+  variable_del('publicbookings_request_finalized_subject');
+  variable_del('publicbookings_request_finalized_body');
+  variable_del('publicbookings_request_denied_subject');
+  variable_del('publicbookings_request_denied_body');
+  variable_del('publicbookings_request_updated_subject');
+  variable_del('publicbookings_request_updated_body');
+  variable_del('publicbookings_request_cancelled_subject');
+  variable_del('publicbookings_request_cancelled_body');
+  variable_del('publicbookings_ajax_display_conflicts');
+}
+
+function publicbookings_variable_init() {
+  // No really, I want to use module_load_include and I know about module_load_install
+  $default_header = '';
+  $default_footer = "\n".t('The details of your booking request follow.');
+  $default_footer .= "\n". t("Booking name: %name") ."\n";
+  $default_footer .= "\n". t('Resource: %resource_name') ."\n";
+  $default_footer .= "\n". t("Start: %start") ."\n";
+  $default_footer .= "\n". t("End: %end") ."\n";
+  $default_prefix = '';
+  $default_postfix = '';
+  variable_set('publicbookings_all_body_header',$default_header);
+  variable_set('publicbookings_all_body_footer',$default_footer);
+  variable_set('publicbookings_all_subject_prefix',$default_prefix);
+  variable_set('publicbookings_all_subject_postfix',$default_postfix);
+  variable_set('publicbookings_request_confirm_subject','%prefix '.t('Confirm your booking request').' %postfix');
+  $body = t('Please visit the link below to confirm your booking request:') ."\n\n";
+  $body .= "%url\n\n";
+  $body .= t('Your passphrase is %passphrase.');
+  $body .= t('You can use this passphrase to return to your booking request and make changes if necessary.') ."\n\n";
+  variable_set('publicbookings_request_confirm_body', "%header\n".$body."\n%footer");
+  variable_set('publicbookings_request_pending_subject','%prefix '.t('Your booking request is now pending review').' %postfix');
+  $body .= "\n".t('Your email address has been successfully confirmed. A booking manager will review your request as soon as possible.');
+  variable_set('publicbookings_request_pending_body',"%header\n".$body."\n%footer");
+  variable_set('publicbookings_request_finalized_subject','%prefix '.t('Your booking request is now finalized').' %postfix');
+  $body .= "\n".t('Your booking request was approved, and is now finalized.');
+  variable_set('publicbookings_request_finalized_body',"%header\n".$body."\n%footer");
+  variable_set('publicbookings_request_denied_subject','%prefix '.t('Your booking request was denied'.' %postfix'));
+  $body = t('Your booking request was denied.');
+  variable_set('publicbookings_request_denied_body',"%header\n".$body."\n%footer");
+  variable_set('publicbookings_request_updated_subject','%prefix '.t('Your booking request was updated').' %postfix');
+  $body = t('Your booking request was updated.');
+  variable_set('publicbookings_request_updated_body',"%header\n".$body."\n%footer");
+  variable_set('publicbookings_request_cancelled_subject','%prefix '.t('Your booking request was cancelled').' %postfix');
+  $body = t('Your booking request was cancelled.');
+  variable_set('publicbookings_request_cancelled_body',"%header\n".$body."\n%footer");
+}
+
+/**
+ * Implementation of hook_schema().
+ */
+function publicbookings_schema() {
+  $schema['publicbookings_clients'] = array(
+  'description' => t('Stores clients. One per booking request.'),
+    'fields' => array(
+      'client_id' => array(
+        'type' => 'serial',
+      ),
+      'record_id' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => t('Primary booking record of this client.'),
+      ),
+      'secondary_records' => array(
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'description' => t('Secondary booking records.'),
+      ),
+      'uid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => t('User ID, if the client is a logged-in user.'),
+      ),
+      'passphrase' => array(
+        'type' => 'varchar',
+        'length' => 12,
+        'not null' => TRUE,
+        'description' => t('Passphrase in case this unregistered user wants to edit their request.'),
+      ),
+      'first_name' => array(
+        'type' => 'varchar',
+        'length' => 55,
+        'not null' => TRUE,
+      ),
+      'last_name' => array(
+        'type' => 'varchar',
+        'length' => 55,
+        'not null' => TRUE,
+      ),
+      'phone' => array(
+        'type' => 'varchar',
+        'not null' => TRUE,
+        'length' => 20,
+        'description' => t('Phone number for contacting.'),
+      ),
+      'email' => array(
+        'type' => 'varchar',
+        'not null' => TRUE,
+        'length' => 64,
+        'description' => t('Email address for contacting.'),
+      ),
+      'comments' => array(
+        'type' => 'text',
+        'not null' => TRUE,
+      ),
+      'created' => array(
+        'type' => 'datetime',
+        'not null' => TRUE,
+      ),
+      'changed' => array(
+        'type' => 'datetime',
+        'not null' => TRUE,
+      ),
+      'title' => array(
+        'type'  => 'int',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+        'description' => t('Salutation of the client, enum(\'\', \'Ms.\', \'Mr.\''),
+        'size' => 'tiny',
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('client_id'),
+		'index' => array(
+			'record' => array('record_id'),
+			'pass'   => array('passphrase'),
+		),
+  );
+
+  return $schema;
+}
+/**
+ Update from alpha1 or old dev
+ */
+function publicbookings_update_6001() {
+	$ret = array();
+
+	if ( ! db_table_exists('publicbookings_clients') ) {
+		$schema['publicbookings_clients'] = array(
+				'description' => t('Stores clients. One per booking request.'),
+				'fields' => array(
+					'client_id' => array(
+						'type' => 'serial',
+						),
+					'record_id' => array(
+						'type' => 'int',
+						'unsigned' => TRUE,
+						'not null' => TRUE,
+						'description' => t('Primary booking record of this client.'),
+						),
+					'secondary_records' => array(
+						'type' => 'varchar',
+						'length' => 64,
+						'not null' => TRUE,
+						'description' => t('Secondary booking records.'),
+						),
+					'uid' => array(
+						'type' => 'int',
+						'unsigned' => TRUE,
+						'not null' => TRUE,
+						'description' => t('User ID, if the client is a logged-in user.'),
+						),
+					'passphrase' => array(
+							'type' => 'varchar',
+							'length' => 12,
+							'not null' => TRUE,
+							'description' => t('Passphrase in case this unregistered user wants to edit their request.'),
+							),
+					'first_name' => array(
+							'type' => 'varchar',
+							'length' => 32,
+							'not null' => TRUE,
+							),
+					'last_name' => array(
+							'type' => 'varchar',
+							'length' => 32,
+							'not null' => TRUE,
+							),
+					'phone' => array(
+							'type' => 'varchar',
+							'not null' => TRUE,
+							'length' => 10,
+							'description' => t('Phone number for contacting.'),
+							),
+					'email' => array(
+							'type' => 'varchar',
+							'not null' => TRUE,
+							'length' => 64,
+							'description' => t('Email address for contacting.'),
+							),
+					'comments' => array(
+							'type' => 'text',
+							'not null' => TRUE,
+							),
+					'created' => array(
+							'type' => 'datetime',
+							'not null' => TRUE,
+							),
+					'changed' => array(
+							'type' => 'datetime',
+							'not null' => TRUE,
+							),
+					),
+					'primary key' => array('client_id'),
+					'index' => array(
+							'record' => array('record_id'),
+							'pass'   => array('passphrase'),
+							),
+					);
+		db_create_table($ret, 'publicbookings_clients', $schema['publicbookings_clients']);
+		return $ret;
+	}
+
+	if ( db_column_exists('publicbookings_clients','modified') ) {
+		db_change_field($ret, 'publicbookings_clients', 'modified', 'changed', array(
+					'type' => 'datetime',
+					'not null' => TRUE,
+					)
+				);
+		db_drop_primary_key($ret,'publicbookings_clients',  array('nid'));
+		db_add_primary_key( $ret,'publicbookings_clients',  array('client_id'));
+	}
+	db_add_index($ret,'publicbookings_clients','record',array('record_id'));
+	db_add_index($ret,'publicbookings_clients','pass',array('passphrase'));
+
+	return $ret;
+}
+
+/**
+ * Update from ALPHA4
+ */
+function publicbookings_update_6002() {
+  publicbookings_variable_init();
+  return array();
+}
+
+/**
+ * Update 2 from ALPHA4
+ */
+function publicbookings_update_6003() {
+  $ret = array();
+  db_change_field($ret, 'publicbookings_clients', 'first_name', 'first_name', array(
+        'type' => 'varchar',
+        'length' => 55,
+        'not null' => TRUE,
+      ));
+  db_change_field($ret, 'publicbookings_clients', 'last_name', 'last_name', array(
+        'type' => 'varchar',
+        'length' => 55,
+        'not null' => TRUE,
+      ));
+  db_change_field($ret, 'publicbookings_clients', 'phone', 'phone', array(
+        'type' => 'varchar',
+        'not null' => TRUE,
+        'length' => 20,
+        'description' => t('Phone number for contacting.')
+        ));
+  return $ret;
+}
+
+function publicbookings_update_6004() {
+  $ret = array();
+  
+  $title = array(
+        'type'  => 'int',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+        'description' => t('Salutation of the client, enum(\'\', \'Ms.\', \'Mr.\''),
+        'size' => 'tiny',
+        'default' => 0,
+      );
+
+  db_add_field($ret, 'publicbookings_clients', 'title', $title);
+
+  return $ret;
+}
+
+function publicbookings_update_6005() {
+  return array( array('success' => FALSE, 'query' => 'Added new Public Bookings user privilege. Please check your settings!'));
+}

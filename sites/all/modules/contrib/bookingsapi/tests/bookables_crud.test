@@ -1,0 +1,49 @@
+<?php
+
+class bookingsAPIBookablesCRUD extends DrupalTestCase {
+  /**
+   * Metadata
+   */
+  function get_info() {
+    return array(
+      'name'  => t('Bookables - CRUD operations'),
+      'desc'  => t('Create, read, update, and delete bookable nodes.'),
+      'group' => t('Bookings API module'),
+    );
+  }
+
+  var $bookable;
+  
+  function testInsertResource() {
+    $this->bookable = array();
+    $this->bookable['name'] = $this->randomName(32);
+    $this->bookable['location'] = $this->randomName(32);
+    $this->bookable['description'] = $this->randomName(32);
+    
+    $insertResult = bookingsapi_resource_save($this->bookable);
+    $this->assertEqual($insertResult, SAVED_NEW);
+    $this->assertNotNull($this->bookable['rid']);
+  }
+  
+  function testUpdateResource() {
+    $temp_nid = $this->bookable['rid'];
+    $this->bookable['name'] = $this->randomName(32);
+    $this->bookable['location'] = $this->randomName(32);
+    $updateResult = bookingsapi_resource_save($this->bookable);
+    $this->assertEqual($updateResult, SAVED_UPDATED);
+    $this->assertEqual($temp_nid, $this->bookable['rid']);
+  }
+  
+  function testLoadResource() {
+    $record = bookingsapi_resource_load($this->bookable['rid']);
+    $this->assertNotEqual($record, FALSE);
+    $this->assertEqual($record['name'], $this->bookable['name']);
+    $this->assertEqual($record['location'], $this->bookable['location']);
+  }
+  
+  function testDeleteResource() {
+    bookingsapi_resource_delete($this->bookable);
+    $record = bookingsapi_resource_load($this->bookable['rid']);
+    $this->assertEqual($record, FALSE);
+  }
+}

@@ -1,0 +1,18 @@
+<?php
+/**
+ * @file
+ * Bookings API Rules Installer / Uninstaller
+ */
+
+/**
+ * Implementation of hook_install().
+ */
+function bookingsapi_rules_install() {
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function bookingsapi_rules_uninstall() {
+}
+

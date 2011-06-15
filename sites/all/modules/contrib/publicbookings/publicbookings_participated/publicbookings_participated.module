@@ -1,0 +1,28 @@
+<?php
+
+
+/**
+ * Implementation of hook_form_alter.
+ *
+ * Add the participated-field to bookings-forms.
+ */
+function publicbookings_participated_form_alter(&$form, $form_state, $form_id) {
+  if ( $form_id == 'publicbookings_booking_add_form'  || 
+       $form_id == 'publicbookings_booking_edit_form' ){
+    $options = array(
+        BOOKINGSAPI_APPOINTMENT_DUE    => t('Appointment due or unknown'),
+        BOOKINGSAPI_APPOINTMENT_FAILED => t('Appointment missed'),
+        BOOKINGSAPI_APPOINTMENT_KEPT   => t('Appointment kept'),
+      );
+    $values = $form['basic']['values']['#value'];
+    $form['basic']['participated'] = array(
+        '#type'           => 'select',
+        '#title'          => t('Has the client kept the appointment?'),
+        '#default_value'  => array_key_exists('participated', $values) ? $values['participated'] : 0,
+        '#options'        => $options,
+        '#weight'         => 0,
+        );
+  }
+}
+
+

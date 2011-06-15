@@ -1,0 +1,12 @@
+
+bug #46820 by tirsales: Fixed Reference-bug
+feature #468720 by tirsales: Added PRIORITY-condition
+bug #468720 by tirsales: Fixed STATUS-condition
+feature #468720 by tirsales: Added STATUS-condition
+by tirsales: Added bookingsapi_rules.forms.inc
+by tirsales: Added some conditions
+
+Bookings API 6.x-1.0-alpha3, 2009-06-05
+-----------------------------
+by tirsales: Added some phpdoc
+by tirsales: Added bookingsapi_rules

@@ -1,0 +1,540 @@
+<?php
+/**
+ * @file
+ * Bookings API Installer / Uninstaller
+ */
+
+// TODO: all DATETIME should be TIMESTAMP to take advantage of the TIMESTAMP field's timezone functionality.
+// TODO: `type` and `status` should be ENUM.
+// TODO: more and better indexes.
+
+/**
+ * Implementation of hook_install().
+ */
+function bookingsapi_install() {
+  // Create tables.
+  drupal_install_schema('bookingsapi');
+  db_query("UPDATE {system} SET weight = 1 WHERE name = 'bookingsapi'");
+  // Add Content-Type
+  bookingsapi_add_resource_type();
+}
+
+function bookingsapi_add_resource_type() {
+	module_load_include('module','content_copy', 'content_copy');
+
+  // See http://groups.drupal.org/node/5272#comment-54181
+  $filename = drupal_get_path('module','bookingsapi') . "/bookingsapi_resource.cck";
+  watchdog("Bookings API Install","Filename: $filename");
+  $content  = implode('', file($filename) );
+
+  $form_state = array(
+    'values' => array(
+      'type_name' => '<create>',
+      'macro'     => $content,
+      ),
+    );
+
+  drupal_execute("content_copy_import_form", $form_state);
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function bookingsapi_uninstall() {
+  // remove tables
+  drupal_uninstall_schema('bookingsapi');
+	// delete vars
+  variable_del('bookingsapi_using_sql_ts_triggers');
+	variable_del('bookingsapi_time_granularity');
+  variable_del('bookingsapi_unconfirmed_conflicts');
+  variable_del('bookingsapi_pending_conflicts');
+  variable_del('bookingsapi_resource_tree');
+  variable_del('bookingsapi_year_range');
+}
+
+/**
+* Implementation of hook_requirements()
+*/
+function bookingsapi_requirements($phase) {
+  $requirements = array();
+  $t = get_t();
+
+  // an array of the dependencies
+  // where the array key is the module machine-readable name
+  // and the value is the module human-readable name
+  $dependencies = array(
+    'content'       => 'Content',
+    'date_api'      => 'Date API',
+    'date_repeat'   => 'Date Repeat',
+    'content_copy'  => 'Content Copy',
+    'number'        => 'Number',
+    'text'          => 'Text',
+    'nodereference' => 'Nodereference',
+  );
+
+  switch ($phase) {
+    case 'install':
+      $error = FALSE;
+      $value = '';
+      foreach ($dependencies as $dependency => $module_nice_name) {
+        if (!module_exists($dependency)) {
+          $error = TRUE;
+          $value .= $t($module_nice_name . " to be pre-installed; ");
+          $severity = REQUIREMENT_ERROR;
+        }
+      }
+
+      if ($error) {
+        $requirements['example_cck_content'] = array(
+            'title' => $t('Example CCK Content requires: '),
+            'value' => $value . $t(' if the required modules are now installed, please enable this module again.'),
+            'severity' => $severity,
+            );
+      }
+      break;
+  }
+
+  return $requirements;
+}
+
+
+/**
+ * Implementation of hook_schema().
+ */
+function bookingsapi_schema() {
+  $prefix = 'bookings_';
+  $schema[$prefix.'records'] = array(
+  'description' => t('Stores bookings and availability records.'),
+    'fields' => array(
+      'record_id' => array(
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => t("The record's id."),
+      ),
+      'resource_id' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => t("The ID of the resource being referenced."),
+      ),
+      'type' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => "enum('booking', 'unavailable', 'available')",
+      ),
+      'subtype' => array(
+        'type' => 'varchar',
+        'not null' => FALSE,
+        'length' => 20,
+        'description' => t('Record subtype, if your implementation utilizes it.'),
+      ),
+      'start' => array(
+        'type' => 'datetime',
+        'not null' => TRUE,
+        'description' => t('Booking start time.'),
+      ),
+      'end' => array(
+        'type' => 'datetime',
+        'not null' => TRUE,
+        'description' => t('Booking end time.'),
+      ),
+      'name' => array(
+        'type' => 'varchar',
+        'not null' => TRUE,
+        'length' => 64,
+        'description' => t('Name of the record.'),
+      ),
+      'description' => array(
+        'type' => 'text',
+        'not null' => FALSE,
+        'description' => t('Description of the record.'),
+      ),
+      'rrule' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'description' => t('iCal RRULE, if applicable. Processed by date_repeat.'),
+      ),
+      'rrule_until' => array(
+        'type' => 'datetime',
+        'not null' => FALSE,
+        'description' => t('iCal RRULE UNTIL. Separate from the RRULE to allow queries to efficiently determine relevance. Must not be NULL if an rrule is defined.'),
+      ),
+      'priority' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'size' => 'tiny',
+        'default' => 0,
+        'description' => t('The priority of this record.'),
+      ),
+      'created' => array(
+        'type' => 'datetime',
+        'not null' => TRUE,
+        'description' => t('When this record was created.'),
+      ),
+      'changed' => array(
+        'type' => 'datetime',
+        'not null' => FALSE,
+        'description' => t('When this record was last modified.'),
+      ),
+      'status' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 1,
+        'description' => t('Finalized bookings cannot have time conflicts with each other. Finalized availabilities must be obeyed.'),
+      ),
+    ),
+    'primary key' => array('record_id'),
+    'indexes' => array(
+				'timeframe' => array('start','end'), 
+				'resource' => array('resource_id')
+			),
+  );
+
+
+  $schema[$prefix.'schedules'] = array(
+  'description' => t(''),
+    'fields' => array(
+      'instance_id' => array(
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'resource_id' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'record_id' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'type' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 1,
+      ),
+      'status' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 1,
+      ),
+      'start' => array(
+        'type' => 'datetime',
+        'not null' => TRUE,
+        'description' => t('Booking start time.'),
+      ),
+      'end' => array(
+        'type' => 'datetime',
+        'not null' => TRUE,
+        'description' => t('Booking end time.'),
+      ),
+    ),
+    'primary key' => array('instance_id'),
+    'indexes' => array(
+      'record' => array('record_id'),
+      'drilldown' => array('resource_id', 'type', 'status', 'start', 'end'),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ Update from alpha1 or old dev
+ */
+function bookingsapi_update_6001() {
+	$ret = array();
+
+	// Alpha1 uses a different database-layout then dev
+	// to be able to use this for both ALPHA and DEV we need to check each field 
+	// before we change it
+
+	$prefix    = 'bookings_';
+	$records   = $prefix . 'records';
+	$resources = $prefix . 'resources';
+	$schedules = $prefix . 'schedules';
+
+	if ( db_column_exists($records,'ical_rrule') ) {
+			db_change_field($ret, $records, 'ical_rrule', 'rrule', array(
+					'type' => 'varchar',
+					'length' => 255,
+					'not null' => TRUE,
+					'description' => t('iCal RRULE, if applicable. Processed by date_repeat.'),
+					)
+				);
+	}
+	if ( db_column_exists($records,'ical_rrule_until') ) {
+		db_change_field($ret, $records, 'ical_rrule_until', 'rrule_until', array(
+					'type' => 'datetime',
+					'not null' => TRUE,
+					'description' => t('iCal RRULE UNTIL. Separate from the RRULE to allow queries to efficiently determine relevance.'),
+					)
+				);
+	}
+	if ( db_column_exists($records,'modified') ) {
+		db_change_field($ret, $records, 'modified', 'changed', array(
+					'type' => 'datetime',
+					'not null' => TRUE,
+					'description' => t('When this record was last modified.'),
+					)
+				);
+	}
+	db_change_field($ret, $resources, 'default_availability', 'default_availability', array(
+				'type' => 'int',
+				'not null' => TRUE,
+				'size' => 'tiny',
+				'default' => 0,
+				'description' => t('Default availability of the resource.'),
+				)
+			);
+	db_add_index($ret,$records,'resource',array('resource_id'));
+
+	return $ret;
+}
+
+/*
+ * Update from ALPHA1 or dev.
+ * Fixes the "reserved keyword: group as column name" problem
+ */
+function bookingsapi_update_6004() {
+  $ret = array();
+  $ret_temp = array();
+  if (db_column_exists('bookings_resources','group')) {
+    // A patch to fix the issue of 'reserved keywords as column names' has been
+    // filed for db_change_field, but has not been resolved so far.
+    // So we test both versions - with ` and without ` around the original column
+    // name and return only one set of error-messages
+    db_change_field($ret_temp, 'bookings_resources', '`group`', 'grouping', array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => t(''),
+        'default' => 0,
+      )
+    );
+    if (count($ret_temp) > 0) {
+      db_change_field($ret_temp, 'bookings_resources', 'group', 'grouping', array(
+            'type' => 'int',
+            'size' => 'tiny',
+            'unsigned' => TRUE,
+            'not null' => TRUE,
+            'description' => t(''),
+            'default' => 0,
+            )
+          );
+    }
+    $ret = $ret_temp;
+  }
+  else {
+      db_change_field($ret, 'bookings_resources', 'grouping', 'grouping', array(
+            'type' => 'int',
+            'size' => 'tiny',
+            'unsigned' => TRUE,
+            'not null' => TRUE,
+            'description' => t(''),
+            'default' => 0,
+        )
+      );
+  }
+  return $ret;
+}
+
+/**
+ * Convert existing resources to the new node-based format.  
+ * Add a new content-type (calls bookingsapi_add_resource_type).
+ */
+function bookingsapi_update_6050() {
+  module_load_include('module', 'bookingsapi');
+  
+  bookingsapi_add_resource_type();
+
+  $ret = array();
+  $sql = "SELECT * FROM {bookings_resources}";
+  $q = db_query($sql);
+
+  $working = TRUE;
+
+  while ( $res = db_fetch_array($q) ) {
+    $resID_old = $res['resource_id'];
+    unset($res['resource_id']);
+
+    bookingsapi_resource_save($res);
+
+    watchdog("Bookings API", "resource<br><pre>".print_r($res,true),"</pre>");
+
+    $resID_new = $res->nid;
+    $sqlU = "UPDATE {bookings_records} SET resource_id=$resID_new WHERE resource_id=$resID_old";
+    $r = update_sql($sqlU);
+    if ( !$r['success'] ) {
+      $working = FALSE;
+    }
+    $ret[] = $r;
+    $sqlU = "UPDATE {bookings_schedules} SET resource_id=$resID_new WHERE resource_id=$resID_old";
+    $r = update_sql($sqlU);
+    if ( !$r['success'] ) {
+      $working = FALSE;
+    }
+    $ret[] = $r;
+  }
+
+  if ( $working ) {
+    db_drop_table($ret, "bookings_resources");
+  }
+
+  return $ret;
+}
+
+/**
+ * Remove STRICTLY Availabilites. Convert STRICT to normal.
+ *
+ * Only Available and Unavailable are allowed now - there is simply no need 
+ * for STRICT-avails.. 
+ */
+function bookingsapi_update_6051() {
+    $ret = array();
+    $sql = "UPDATE {bookings_schedules} SET type=2 WHERE type=3";
+    $ret[] = update_sql($sql);
+    $sql = "UPDATE {bookings_schedules} SET type=3 WHERE type>3";
+    $ret[] = update_sql($sql);
+    $sql = "UPDATE {content_type_bookingsapi_resource} SET field_ba_defaultavailabilty_value=2 WHERE field_ba_defaultavailabilty_value=3";
+    $ret[] = update_sql($sql);
+    $sql = "UPDATE {content_type_bookingsapi_resource} SET field_ba_defaultavailabilty_value=3 WHERE field_ba_defaultavailabilty_value>3";
+    $ret[] = update_sql($sql);
+
+
+    return $ret;
+}
+
+/**
+ * Fix Allowed values in defaultavailabilty
+ */
+function bookingsapi_update_6052() {
+  $ret = array();
+  $sql = "UPDATE {content_node_field} SET global_settings = '%s' WHERE field_name = 'field_ba_defaultavailabilty'";
+  $settings = 'a:6:{s:6:"prefix";s:0:"";s:6:"suffix";s:0:"";s:3:"min";s:0:"";s:3:"max";s:0:"";s:14:"allowed_values";s:0:"";s:18:"allowed_values_php";s:52:"return array( 2 =>"Unavailable", 3 => "Available" );";}';
+  $res = FALSE;
+
+  if ( db_query($sql,$settings) ) {
+    $res = TRUE;
+  }
+
+  return array( array('success' => $res, 'query' => sprintf($sql,$settings)) );
+}
+
+/**
+ * Add table bookings_free_cache
+ */
+function bookingsapi_update_6053() {
+  $ret = array();
+
+  $schema = array(
+  'description' => t('Table storing list of free slots for resources.'),
+    'fields' => array(
+      'free_id' => array(
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'resource_id' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'start' => array(
+        'type' => 'datetime',
+        'not null' => TRUE,
+        'description' => t('Resource is available from ..'),
+      ),
+      'end' => array(
+        'type' => 'datetime',
+        'not null' => TRUE,
+        'description' => t('Resource is available till ..'),
+      ),
+    ),
+    'primary key' => array('free_id'),
+  );
+
+  db_create_table($ret, 'bookings_free_cache', $schema);
+
+  return $ret;
+}
+
+/**
+ * Fix typo defaultavailbilty -> defaultavailability.
+ */
+function bookingsapi_update_6054() {
+  $ret = array();
+  $sql = "UPDATE {content_node_field} SET field_name = 'field_ba_defaultavailability' WHERE field_name = 'field_ba_defaultavailabilty'";
+  $ret[] = update_sql($sql);
+  $sql = "UPDATE {content_node_field_instance} SET field_name = 'field_ba_defaultavailability' WHERE field_name = 'field_ba_defaultavailabilty'";
+  $ret[] = update_sql($sql);
+  db_change_field($ret, 'content_type_bookingsapi_resource', 'field_ba_defaultavailabilty_value', 'field_ba_defaultavailability_value', array(
+        'type' => 'int',
+        )
+      );
+  return $ret;
+}
+
+/**
+ * bookings_free_cache is factored into its own submodule, so
+ * remove its table.
+ */
+function bookingsapi_update_6055() {
+  $ret = array();
+  db_drop_table($ret, "bookings_free_cache");
+  return $ret;
+}
+
+function bookingsapi_update_6056() {
+	$ret = array();
+  $schema = array(
+        'type' => 'varchar',
+        'not null' => FALSE,
+        'length' => 20,
+        'description' => t('Record subtype, if your implementation utilizes it.'),
+		);
+	db_change_field($ret, "bookings_records", "subtype", "subtype", $schema);
+
+	return $ret;
+}
+
+function bookingsapi_update_6057() {
+	$ret = array();
+	$schema = array(
+			'description' => array(
+				'type' => 'text',
+				'not null' => FALSE,
+				'description' => t('Description of the record.'),
+				),
+			'rrule_until' => array(
+				'type' => 'datetime',
+				'not null' => FALSE,
+				'description' => t('iCal RRULE UNTIL. Separate from the RRULE to allow queries to efficiently determine relevance. Must not be NULL if an rrule is defined.'),
+				),
+			'changed' => array(
+				'type' => 'datetime',
+				'not null' => FALSE,
+				'description' => t('When this record was last modified.'),
+				),
+			);
+	foreach ( array('description', 'rrule_until', 'changed') as $name ) {
+		db_change_field($ret, "bookings_records", $name, $name, $schema[$name]);
+	}
+
+	return $ret;
+}

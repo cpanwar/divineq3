@@ -1,0 +1,78 @@
+<?php
+/**
+ * @file
+ * Bookings API Free Cache Installer / Uninstaller
+ */
+
+/**
+ * Implementation of hook_install().
+ */
+function bookingsapi_free_cache_install() {
+  drupal_install_schema('bookingsapi_free_cache');
+  variable_set('bookingsapi_free_cache_enable', TRUE);
+  variable_set('bookingsapi_free_cache_resPerCron', 10);
+  variable_set('bookingsapi_free_cache_nextCron', 0);
+  variable_set('bookingsapi_free_cache_run_once', FALSE);
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function bookingsapi_free_cache_uninstall() {
+  drupal_uninstall_schema('bookingsapi_free_cache');
+  variable_del('bookingsapi_free_cache_enable');
+  variable_del('bookingsapi_free_cache_resPerCron');
+  variable_del('bookingsapi_free_cache_nextCron');
+  variable_del('bookingsapi_free_cache_run_once');
+  variable_del('bookingsapi_free_cache_maxtime');
+  variable_del('bookingsapi_free_cache_unit');
+}
+
+/**
+ * Implementation of hook_schema()
+ * A single table bookings_free_cache
+ */
+function bookingsapi_free_cache_schema() {
+  $prefix = 'bookings_';
+  $schema[$prefix.'free_cache'] = array(
+  'description' => t('Table storing list of free slots for resources.'),
+    'fields' => array(
+      'free_id' => array(
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'resource_id' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'start' => array(
+        'type' => 'datetime',
+        'not null' => TRUE,
+        'description' => t('Resource is available from ..'),
+      ),
+      'end' => array(
+        'type' => 'datetime',
+        'not null' => TRUE,
+        'description' => t('Resource is available till ..'),
+      ),
+    ),
+    'primary key' => array('free_id'),
+    'indexes' => array(
+      'resource_id' => array('resource_id'),
+      ),
+  );
+
+  return $schema;
+}
+
+/**
+ * Adds resource_id index
+ */
+function bookingsapi_free_cache_update_6001() {
+  $ret = array();
+  db_add_index($ret, 'bookings_free_cache', 'resource_id', array('resource_id'));
+  return $ret;
+}

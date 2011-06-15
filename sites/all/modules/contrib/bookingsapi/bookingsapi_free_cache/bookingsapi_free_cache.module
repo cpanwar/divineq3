@@ -1,0 +1,878 @@
+<?php
+
+/**
+ * Used to indicate that the cache is build for a number of seconds in advance.
+ */
+define( 'BOOKINGSAPI_FREE_CACHE_SECOND', 0 );
+/**
+ * Used to indicate that the cache is build for a number of minutes in advance.
+ */
+define( 'BOOKINGSAPI_FREE_CACHE_MINUTE', 1 );
+/**
+ * Used to indicate that the cache is build for a number of hours in advance.
+ */
+define( 'BOOKINGSAPI_FREE_CACHE_HOUR'  , 2 );
+/**
+ * Used to indicate that the cache is build for a number of days in advance.
+ */
+define( 'BOOKINGSAPI_FREE_CACHE_DAY'   , 3 );
+/**
+ * Used to indicate that the cache is build for a number of months in advance.
+ */
+define( 'BOOKINGSAPI_FREE_CACHE_MONTH' , 4 );
+/**
+ * Used to indicate that the cache is build for a number of years in advance.
+ */
+define( 'BOOKINGSAPI_FREE_CACHE_YEAR'  , 5 );
+
+/**
+ * Implementation of hook_requirements.
+ */
+function bookingsapi_free_cache_requirements($phase) {
+  if ( $phase == 'runtime' ) {
+    if ( variable_get('bookingsapi_free_cache_run_once',FALSE) ) {
+      $reqs['bookingsapi_free_cache'] = array(
+        'title' => t( 'Bookings API Free Cache created' ),
+        'value' => t( 'The cache of free time slots was created at least once.' ),
+        'severity' => REQUIREMENT_OK
+      );
+    }
+    else {
+      $reqs['publicbookings'] = array(
+        'title' => t( 'No Bookings API Free Cache created' ),
+        'value' => t( 'The cache of free time slots shout be created at least once.' ),
+        'description' => t( 'Without creating the cache at least once, the cache is not usable.' ),
+        'severity' => REQUIREMENT_ERROR
+      );
+    }
+  }
+}
+
+/**
+ * Implementation of hook_cron.
+ */
+function bookingsapi_free_cache_cron() {
+  if ( ! variable_get('bookingsapi_free_cache_enable',TRUE) )  {
+    return;
+  }
+  $resPerCron = variable_get('bookingsapi_free_cache_resPerCron', 10);
+  $nextRes    = variable_get('bookingsapi_free_cache_nextCron', 0);
+  $startRes   = $nextRes;
+  $restart    = false;
+
+  module_load_include('module', 'bookingsapi');
+  $resList    = array_keys(bookingsapi_resource_minimal_list());
+
+  if ( count($resList) <= $resPerCron ) {
+    bookingsapi_free_cache_recalculate();
+    variable_set('bookingsapi_free_cache_nextCron', 0);
+    return;
+  }
+  
+  for ( ; $resPerCron > 0 && ( ! $restart || $startRes != $nextRest) ; $resPerCron-- ) {
+    if ( $nextRes < count($resList) ) {
+      bookingsapi_free_cache_recalculate((int) $resList[$nextRes]);
+      $nextRes++;
+    } else {
+      variable_set('bookingsapi_free_cache_run_once',TRUE);
+      $nextRes = 0;
+      $restart = TRUE;
+      $resPerCron++;
+    }
+  }
+  variable_set('bookingsapi_free_cache_nextCron', $nextRes);
+}
+
+/**
+ * Rebuilds the list of available slots/times for the given resource or the 
+ * complete cache.
+ *
+ * Calls hook_bookingsapi_free_cache with op=delete and data an array 
+ * containing the key 'resource_id'.
+ *
+ * @param int $resourceID
+ *  Rebuild the cache for the given resource or the complete cache if ommitted.
+ */
+function bookingsapi_free_cache_recalculate( $resourceID = NULL ) {
+  module_load_include('module', 'bookingsapi');
+
+  if ( ! (is_numeric($resourceID)|| is_object($resourceID)) ) {
+    watchdog("Bookings API","Attempting to rebuild complete cache of available " .
+      "resources");
+    // recalc all resources - dont recalculate disabled resources
+    $listResources = bookingsapi_resource_minimal_list();
+    foreach ( $listResources as $id => $name ) {
+      bookingsapi_free_cache_recalculate((int)$id);
+    }
+    variable_set('bookingsapi_free_cache_run_once', TRUE);
+    variable_set('bookingsapi_free_cache_nextCron', 0);
+    return;
+  }
+  $id = is_numeric($resourceID) ? $resourceID : $resourceID->nid;
+  if ( ! $id ) {
+    // This method is called when a new resource is created, but before the id is known
+    // Simply exit.
+    return;
+  }
+  $config = array('resource_id'=>$id);
+  bookingsapi_extend('bookingsapi_free_cache', 'delete', $config);
+  // DELETE all existing free-settings for this resource
+  $sql = "DELETE FROM {bookings_free_cache} WHERE resource_id = $id";
+  db_query($sql);
+
+  // And rebuild it
+  if ( is_object($resourceID) ) {
+    $resource = $resourceID;
+  } else {
+    $resource = bookingsapi_resource_load($resourceID);
+  }
+  $start    = date_convert(date_now(),DATE_OBJECT,DATE_UNIX);
+  $end      = variable_get('bookingsapi_free_cache_maxtime',12);
+  switch ( variable_get('bookingsapi_free_cache_unit', BOOKINGSAPI_FREE_CACHE_MONTH) ) {
+    case BOOKINGSAPI_FREE_CACHE_YEAR:
+      $end *= 12; // A year has 12 month
+    case BOOKINGSAPI_FREE_CACHE_MONTH:
+      $end *= 365/12; // each month has 30.x days
+    case BOOKINGSAPI_FREE_CACHE_DAY:
+      $end *= 24; // each day has 24 hours
+    case BOOKINGSAPI_FREE_CACHE_HOUR:
+      $end *= 60; // each hour has 60 minutes
+    case BOOKINGSAPI_FREE_CACHE_MINUTE:
+      $end *= 60; // each minute has 60 seconds
+  }
+  $end      += $start;
+  $start    = date_convert($start,DATE_UNIX,DATE_DATETIME);
+  $end      = date_convert($end, DATE_UNIX, DATE_DATETIME);
+  $defAvail = $resource->field_ba_defaultavailability[0]['value'];
+  $enabled  = $resource->status > 0;
+
+  $availabilities = array();
+
+  if ( $defAvail == BOOKINGSAPI_AVAILABLE ) {
+    // The resource is available, so we can add a never ending availability as
+    // starting point
+    $availabilities[] = array('start' => date_convert(date_now(),DATE_OBJECT,DATE_UNIX), 'end' => PHP_INT_MAX );
+  } else {
+    // The resource is unavailable, so we start by reading its availabilities.
+    $aval = bookingsapi_booking_recursive_list($resourceID, BOOKINGSAPI_AVAILABLE, 
+								NULL,$start, $end, TRUE, FALSE, TRUE);
+    $c = -1;
+    foreach( $aval as $a ) {
+      $s = date_convert($a['start'], DATE_DATETIME, DATE_UNIX);
+      $e = date_convert($a['end'], DATE_DATETIME, DATE_UNIX);
+
+      // Availabilities can overlap - if they do, concatenate them
+      if ( $c >= 0 && $availabilities[$c]['end'] >= $s ) {
+        $availabilities[$c]['end'] = $e;
+      } else {
+      // Otherwise add a new free slot
+//        $new = array('start' => $s, 'end' => $e );
+        $availabilities[] = array('start' => $s, 'end' => $e );
+        $c++;
+      }
+    }
+  }
+
+  // No availabilities found? No free slots available, we can end here.
+  if ( count($availabilities) <= 0 ) {
+    return;
+  }
+
+  // Now we have to remove all unavailable slots - every conflicting booking
+  // every unavailability of this resource, its parents (w/o childs) and its
+  // children
+  // Disabled bookings will be unaffected by child-bookings /-unavailabilities
+  $bookings = bookingsapi_booking_recursive_list( $resourceID, 
+                BOOKINGSAPI_UNAVAILABLE, NULL, $start, $end, TRUE, $enabled, FALSE );
+
+  $availabilities = bookingsapi_free_cache_merge_availability( $availabilities, $bookings );
+
+  $bookings = bookingsapi_booking_recursive_list( $resourceID, 
+                BOOKINGSAPI_BOOKING, bookingsapi_booking_conflicting_status(), $start, $end, TRUE, $enabled, FALSE ); 
+
+  $conflicts = array();
+  $availabilities = bookingsapi_free_cache_merge_availability( $availabilities, $bookings, $conflicts );
+
+  foreach ( $conflicts as $conflict ) {
+    bookingsapi_extend("bookingsapi_booking","conflict",$conflict);
+  }
+
+  // Now we have mapped all bookings, so we can just add all availabilities to 
+  // the database again.
+ 
+  $config = array(
+    'resource_id'=>$id,
+    'availabilities'=>$availabilities,
+    ); 
+  bookingsapi_extend('bookingsapi_free_cache', 'insert', $config);
+
+  if ( count($availabilities) <= 0 ) {
+    // No availabilities left
+    return;
+  } else {
+    $sql = "INSERT INTO {bookings_free_cache} (resource_id,start,end) VALUES ";
+    $add = array();
+    foreach ( $availabilities as $avail ) {
+      if ( $avail['start'] < $avail['end'] ) {
+        $add[] = "($id, '".
+                  date_convert($avail['start'],DATE_UNIX,DATE_DATETIME)."', '".
+                  date_convert($avail['end'],  DATE_UNIX,DATE_DATETIME)."')"; 
+      }
+    }
+    $sql .= implode(', ', $add);
+    db_query($sql);
+  }
+}
+ 
+/**
+ * Implementation of hook_bookingsapi_conflict_check from Bookings API.
+ *
+ * Allows to check for conflicts using the cache of free resources.
+ */
+function bookingsapi_free_cache_bookingsapi_conflict_check( $op, &$record, &$config ) {
+  if ( ! variable_get('bookingsapi_free_cache_enable',TRUE) )  {
+    return;
+  }
+
+  // We only check bookings, availabilities stay unchecked
+  if ( $record['type'] != BOOKINGSAPI_BOOKING ) {
+    return;
+  }
+
+////  Don't check changing resource ids ATM
+//  if ( $config['resource_change'] ) {
+//    return;
+//  }
+
+  // It's already been checks as 'unavailable'
+  if ( $config['abort_after'] && 
+       $config['status'] !== BOOKINGSAPI_CONFLICTS_NO && 
+       $config['status'] !== BOOKINGSAPI_CONFLICTS_POTENTIAL ) {
+    return;
+  }
+
+  $start    = date_convert(date_now(),DATE_OBJECT,DATE_UNIX);
+  $end      = variable_get('bookingsapi_free_cache_maxtime',12);
+  switch ( variable_get('bookingsapi_free_cache_unit', BOOKINGSAPI_FREE_CACHE_MONTH) ) {
+    case BOOKINGSAPI_FREE_CACHE_YEAR:
+      $end *= 12; // A year has 12 month
+    case BOOKINGSAPI_FREE_CACHE_MONTH:
+      $end *= 365/12; // each month has 30.x days
+    case BOOKINGSAPI_FREE_CACHE_DAY:
+      $end *= 24; // each day has 24 hours
+    case BOOKINGSAPI_FREE_CACHE_HOUR:
+      $end *= 60; // each hour has 60 minutes
+    case BOOKINGSAPI_FREE_CACHE_MINUTE:
+      $end *= 60; // each minute has 60 seconds
+  }
+  $end      += $start;
+  if ( $record['start'] > $end || $record['end'] > $end ) {
+    return;
+  }
+  // Don't check bookings in the past (start < NOW && last_repeat < NOW)
+  if ( $record['start'] < $start && ( ! isset($record['rrule']) || date_convert($record['rrule_until'], DATE_DATETIME, DATE_UNIX) < $start ) ) {
+    return;
+  }
+
+  //$return    =& $config['return'];
+  $intervals =& $config['intervals'];
+  $listArray =& $config['conflict_array'];
+
+  if ( $config['new'] || $config['resource_change']) {
+    // The booking is new or it's a changing resource - simply check as a new resource
+    bookingsapi_free_cache_bookingsapi_conflict_check_as_new($record, $config);
+    return;
+  }
+  if ( $config['conflict_change'] ) {
+    if ( bookingsapi_booking_status_conflicts_booking($record)) {
+      bookingsapi_free_cache_bookingsapi_conflict_check_as_new($record, $config);
+      return;
+    } else {
+      if ( $config['record_old']['start'] == $record['start'] &&
+           $config['record_old']['end'] == $record['end'] &&
+           $config['record_old']['rrule'] == $record['rrule'] ) {
+        $config['abort_after'] = TRUE;
+        return;
+      }
+      // For existing, conflicting bookings with changing times ..
+      // don't check for conflicts here - Its easier to do this the normal way.
+    }
+  }
+}
+
+function bookingsapi_free_cache_bookingsapi_conflict_check_as_new( &$record, &$config ) {
+  $start    = date_convert(date_now(),DATE_OBJECT,DATE_UNIX);
+  $end      = variable_get('bookingsapi_free_cache_maxtime',12);
+  switch ( variable_get('bookingsapi_free_cache_unit', BOOKINGSAPI_FREE_CACHE_MONTH) ) {
+    case BOOKINGSAPI_FREE_CACHE_YEAR:
+      $end *= 12; // A year has 12 month
+    case BOOKINGSAPI_FREE_CACHE_MONTH:
+      $end *= 365/12; // each month has 30.x days
+    case BOOKINGSAPI_FREE_CACHE_DAY:
+      $end *= 24; // each day has 24 hours
+    case BOOKINGSAPI_FREE_CACHE_HOUR:
+      $end *= 60; // each hour has 60 minutes
+    case BOOKINGSAPI_FREE_CACHE_MINUTE:
+      $end *= 60; // each minute has 60 seconds
+  }
+  $end      += $start;
+
+  $sql = "SELECT free_id FROM {bookings_free_cache} WHERE resource_id = %d AND ".
+    "start <= '%s' AND end >= '%s'";
+  $intervals =& $config['intervals'];
+  $listArray =& $config['conflict_array'];
+
+  // The booking is new, or its newly conflicting 
+  foreach ( $intervals as $rec ) {
+    if ( $rec[0] > $end || $rec[1] > $end ) {
+      continue;
+    }
+    $q = db_query($sql, $record['resource_id'], $rec[0], $rec[1]);
+    if ( db_fetch_array($q) === FALSE ) {
+      $config['status'] = BOOKINGSAPI_CONFLICTS_CONFLICT;
+      $config['abort_after'] = TRUE;
+      if ( ! is_array($listArray) ) {
+        return;
+      } else {
+        $listArray[] = array(
+            'start' => $rec[0],
+            'end'   => $rec[1],
+            'type'  => BOOKINGSAPI_UNAVAILABLE,
+            'status'=> BOOKINGSAPI_STATUS_FINALIZED,
+            );
+      }
+    }
+  }
+}
+
+/**
+ * Implementation of hook_bookingsapi_booking.
+ *
+ * If deleting hook_booking does not guarantee that $data contains the whole 
+ * record, only the key record_id must be present.
+ */
+function bookingsapi_free_cache_bookingsapi_booking( $op, &$data, &$config ) {
+  if ( $op == 'list' ) {
+    return;
+  }
+  module_load_include('module', 'bookingsapi');
+  if ( $op == 'delete' ) {
+    /*
+     * The 'delete'-operation does not need the whole record (it may well be
+     * called with nothing but the id), so Bookings API does not guarantee that
+     * the whole record is handed to the hook.
+     * Thus we load the record to be on the safe side.
+     */
+    if ( ! is_array($data) ) {
+      $record = bookingsapi_record_load($data);
+    } else {
+      $record = bookingsapi_record_load($data['record_id']);
+    }
+  } else {
+    if ( ! is_array($data) ) {
+      $record = bookingsapi_record_load($data);
+    } else {
+      $record = $data;
+    }
+  }
+
+  $resource_id = $record['resource_id'];
+
+  if ( $op == 'delete' ) {
+    // delete an existing record. This is easy.
+    if ( $record['type'] == BOOKINGSAPI_BOOKING && bookingsapi_booking_status_conflicts_booking($record) || $record['type'] == BOOKINGSAPI_UNAVAILABLE ) {
+      bookingsapi_parse_rrule($record, $exceptions, $intervals);
+      foreach ( $intervals as $rec ) {
+        bookingsapi_free_cache_availability_add($resource_id, $rec[0], $rec[1], $record['record_id']);
+      }
+    } else if ( $record['type'] == BOOKINGSAPI_AVAILABLE ) {
+      bookingsapi_parse_rrule($record, $exceptions, $intervals);
+      foreach ( $intervals as $rec ) {
+        bookingsapi_free_cache_availability_remove($resource_id, $rec[0], $rec[1], $record['record_id']);
+      }
+    }
+  } else if ( $op == 'insert' ) {
+    // Insert a new record, easy too.
+    if ( $record['type'] == BOOKINGSAPI_BOOKING ) {
+      if ( is_array($config) && array_key_exists('status',$config) ) {
+        $conflicts = bookingsapi_booking_status_conflicts($config['status']);
+      } else {
+        $conflicts = bookingsapi_booking_status_conflicts_booking($record);
+      }
+    }
+
+    if ( $record['type'] == BOOKINGSAPI_BOOKING && $conflicts || $record['type'] == BOOKINGSAPI_UNAVAILABLE ) {
+      bookingsapi_parse_rrule($record, $exceptions, $intervals);
+      foreach ( $intervals as $rec ) {
+        bookingsapi_free_cache_availability_remove($resource_id, $rec[0], $rec[1]);
+      }
+    } else if ( $record['type'] == BOOKINGSAPI_AVAILABLE ) {
+      bookingsapi_parse_rrule($record, $exceptions, $intervals);
+      foreach ( $intervals as $rec ) {
+        bookingsapi_free_cache_availability_add($resource_id, $rec[0], $rec[1]);
+      }
+    }
+  } else if ( $op == 'update' ) {
+    // For the first version simply remove the old one and add a new one.
+    bookingsapi_free_cache_bookingsapi_booking( 'delete', $record['record_id'], $config );
+    bookingsapi_free_cache_bookingsapi_booking( 'insert', $record, $config );
+  } 
+}
+
+/**
+ * Implementation of hook_bookingsapi_record_status.
+ *
+ * A cache-change is needed whenever the status switches between non-conflicting
+ * and conflicting (in either direction).
+ */
+function bookingsapi_free_cache_bookingsapi_record_status( $op, &$data, &$config ) {
+  if ( $op == 'change' ) {
+    if ( bookingsapi_booking_status_conflicts_booking($data) && ! bookingsapi_booking_status_conflicts($config['status']) ) {
+      bookingsapi_free_cache_bookingsapi_booking( 'delete', $data, $config );
+    } else if ( ! bookingsapi_booking_status_conflicts_booking($data) && bookingsapi_booking_status_conflicts($config['status']) ) {
+      bookingsapi_free_cache_bookingsapi_booking( 'insert', $data, $config );
+    }
+  }
+}
+
+/**
+ * Implementation of hook_bookingsapi_resource.
+ *
+ * Reacts on changes to existing resources.
+ */
+function bookingsapi_free_cache_bookingsapi_resource( $op, &$data, &$config ) {
+  if ( $op == 'delete' ) {
+    // delete the resource from the cache
+    $sql = "DELETE FROM {bookings_free_cache} WHERE resource_id = %d";
+    $db_query($sql, $data['resource_id']);
+  } else if ( $op == 'insert' ) {
+    /*
+     * // Recalc the cache of this resource
+     * bookingsapi_free_cache_recalculate($data);
+     *
+     * Ignore this - there is no node-id before we are saving.
+     */
+  } else if ( $op == 'update' ) {
+    // Recalc the cache of this resource if default availability was changed.
+    $resOld = bookingsapi_resource_load($data->nid);
+    if ( $data->field_ba_defaultavailability[0]['value'] != $resOld->field_ba_defaultavailability[0]['value'] ) {
+      bookingsapi_free_cache_recalculate($data);
+    }
+  }
+}
+
+/**
+ * Implementation of hook_bookingsapi_resource_postsave
+ *
+ * Recalculates the cache of NEW resources.
+ */
+function bookingsapi_free_cache_bookingsapi_resource_postsave( $op, &$data, &$config ) {
+  if ( $op == 'insert' ) {
+    bookingsapi_free_cache_recalculate($data);
+  }
+}
+
+/**
+ * Merges a booking (or list of bookings) with an availability (or list of 
+ * availabilities).
+ *
+ * Availabilities and bookings must be in the form array(array(start=start,end=stop)..)
+ * where start and stop are in UNIX timeformat. Conversion from DATETIME-format
+ * may be done using date_convert( $time, DATE_DATETIME, DATE_UNIX).
+ *
+ * @param array $availabilities
+ *    List of availabilities as an array of arrays, each subarray being
+ *    in the form start: UNIXTIME(start), end: UNIXTIME(end).
+ *    Each booking must be Left- and Right-maximal, overlaps are not allowed.
+ * @param array $bookings
+ *    List of bookings/unavailabilities as an array of arrays, each subarray 
+ *    being in the form start: UNIXTIME(start), end: UNIXTIME(end). Additional 
+ *    keys may be present, but will be ignored for availability-merging.
+ * @param array &$conflicts
+ *    If present as an array conflicts (bookings that cannot be mapped onto
+ *    availabilities) will be appended to the given array. Each conflict will
+ *    be of the form start: UNIXTIME(start), end: UNIXTIME(end). Additional keys from
+ *    $booking will be copied into this array to.
+ *
+ * @return array
+ *    List of remaining availabilities as an array of arrays, each subarray being
+ *    in the form start: UNIXTIME(start), end: UNIXTIME(end).
+ *    Conflicts will be disregarded.
+ */
+function bookingsapi_free_cache_merge_availability( $availabilities, $bookings, &$conflicts = null ) {
+  foreach ( $bookings as $booking ) {
+    $s = is_numeric($booking['start']) ? (int) $booking['start'] : date_convert($booking['start'],DATE_DATETIME,DATE_UNIX);
+    $e = is_numeric($booking['end']  ) ? (int) $booking['end']   : date_convert($booking['end'],DATE_DATETIME,DATE_UNIX);
+
+    $c = 0;
+    $done = FALSE;
+    while ( $c < count($availabilities) && ! $done ) {
+      $countOld = count($availabilities);
+      if ( ! is_numeric($availabilities[$c]['start']) ) {
+        $availabilities[$c]['start'] = date_convert($availabilities[$c]['start'], DATE_DATETIME, DATE_UNIX);
+      }
+      if ( ! is_numeric($availabilities[$c]['end']) ) {
+        $availabilities[$c]['end'] = date_convert($availabilities[$c]['end'], DATE_DATETIME, DATE_UNIX);
+      }
+      if ( $availabilities[$c]['end'] > $s && $availabilities[$c]['start'] < $e ) {
+        // This availability is impacted by the booking
+        if ( $availabilities[$c]['start'] < $s ) {
+          if ( $availabilities[$c]['end'] == $e ) {
+            // The whole booking can be fit into the availability found
+            // and its equal to the end of the availability, so we can just
+            // move the end of the availability and be done for.
+            $availabilities[$c]['end'] = $s;
+            $done = TRUE;
+            continue;
+          }
+          if ( $availabilities[$c]['end'] > $e ) {
+            // The whole booking can be mapped
+            // But some rest of the availability is still there. So split
+            // the availability up by adding a new avail (booking-end:end)
+            // and setting the old avail to (start:booking-start)
+            $newAvail = array(array('start'=>$e, 'end'=>$availabilities[$c]['end']));
+            $availabilities[$c]['end'] = $s;
+            array_splice($availabilities,$c+1,0,$newAvail); 
+            $done = TRUE;
+            continue;
+          }
+          else {
+            // Not the whole booking can be mapped.
+            // So end the availability and continue searching
+            $end = $availabilities[$c]['end'];
+            $availabilities[$c]['end'] = $s;
+            $s = $end;
+          }
+        } else if ( $availabilities[$c]['start'] == $s ) {
+          if ( $availabilities[$c]['end'] == $e ) {
+            // The whole booking can be fit into the availability found
+            // and its equal to the end of the availability, so we can just
+            // forget this availability
+            array_splice($availabilities,$c,1);
+            $done = TRUE;
+            continue;
+          }
+          if ( $availabilities[$c]['end'] > $e ) {
+            // The whole booking can be mapped
+            // Simply move the start
+            $availabilities[$c]['start'] = $e;
+            $done = TRUE;
+            continue;
+          }
+          else {
+            // Not the whole booking can be mapped
+            // mark as conflict and continue
+            $s = $availabilities[$c]['end'];
+            /*
+            if ( is_array($conflicts) ) {
+              $booking['start'] = $s;
+              $conflicts[] = $booking;
+            }
+            */
+            $c--;
+            array_splice($availabilities,$c,1);
+          }
+        } else {
+          // The availability starts AFTER the booking:
+          // the booking cannot be mapped complete.
+          if ( is_array($conflicts) ) {
+            $book = $booking;
+            $book['start'] = $s;
+            $book['end'] = $availabilities[$c]['start'];
+            $conflicts[] = $book;
+          }
+          if ( $availabilities[$c]['end'] == $e ) {
+            // The booking can be fit into the availability found
+            // and its equal to the end of the availability, so we can just
+            // forget this availability
+            array_splice($availabilities,$c,1);
+            $done = true;
+            continue;
+          } else if ( $availabilities[$c]['end'] > $e ) {
+            // The booking can be mapped
+            // Simply move the start
+            $availabilities[$c]['start'] = $e;
+            $done = true;
+            continue;
+          } else {
+            // Not the whole booking can be mapped.
+            // So remove the availability and continue searching (actually that 
+            // is a conflict.. but we've already delivered it).
+            $s = $availabilities[$c]['end'];
+            array_splice($availabilities,$c,1);
+            $c--;
+          }
+        }
+      }
+      $c++;
+    }
+    if ( $done ) {
+      continue;
+    } else {
+      $booking['start'] = $s;
+      $booking['end'] = $e;
+      // This point can only be reached, if the booking was not mapped completely
+      // So its a conflict...
+      if ( is_array($conflicts) ) {
+        $conflicts[] = $booking;
+      }
+    }
+  }
+  return $availabilities;
+}
+
+
+/**
+ * Removes the given available time of the cache of the given resource and its
+ * children and parents.
+ *
+ * @param int $resource_id
+ *    ID of the resource to update
+ * @param UNIXTIME $start
+ *    Starting time of the removed availability
+ * @param UNIXTIME $end
+ *    Ending time of the removed availability
+ * @param int $record_id
+ *    Record-ID to ignore.
+ * @param boolean unchecked
+ *    Ignored.
+ * @param boolean $checkParents
+ *    Whether to remove the availability from parent-resources.
+ * @param boolean $checkChildren
+ *    Whether to remove the availability from child-resources.
+ */
+function bookingsapi_free_cache_availability_remove( $resource_id, $start, $end, 
+          $record_id = null, $unchecked = TRUE, $checkParents = TRUE, 
+          $checkChildren = TRUE ) {
+  if ( $unchecked ) {
+    // yeah, no checking of availability remove. Its gone!
+  }
+
+  bookingsapi_free_cache_availability_remove_nonrecursive($resource_id, $start, $end);
+  if ( $checkParents ) {
+    $resource = bookingsapi_resource_load($resource_id);
+    if ( $resource->field_ba_parent[0]['nid'] > 0 ) {
+      $parent = bookingsapi_resource_load($resource->field_ba_parent[0]['nid']);
+      if ( $parent->status > 0 ) {
+        bookingsapi_free_cache_availability_remove($resource->field_ba_parent[0]['nid'], $start, $end, $record_id, TRUE, TRUE, FALSE);
+      }
+    }
+  }
+  if ( $checkChildren ) {
+    $children = bookingsapi_resource_get_childs($resource_id);
+    foreach ( $children as $child ) {
+      bookingsapi_free_cache_availability_remove($child, $start, $end, TRUE, FALSE, TRUE);
+    }
+  }
+}
+
+/**
+ * Removes the given available time of the cache of the given resource.
+ *
+ * @param int $resource_id
+ *    ID of the resource to update
+ * @param UNIXTIME $start
+ *    Starting time of the new availability
+ * @param UNIXTIME $end
+ *    Ending time of the new availability
+ */
+function bookingsapi_free_cache_availability_remove_nonrecursive( $resource_id, $start, $end ) {
+  if ( is_numeric($start) ) {
+    $start = date_convert($start, DATE_UNIX, DATE_DATETIME);
+  }
+  if ( is_numeric($end) ) {
+    $end   = date_convert($end,   DATE_UNIX, DATE_DATETIME);
+  }
+  $sql  = "SELECT free_id, start, end FROM {bookings_free_cache} WHERE resource_id = %d ".
+          " AND start <= '%s' AND end >= '%s'";
+  $q = db_query($sql, $resource_id, $end, $start );
+
+  $res = array();
+  while ( $row = db_fetch_array($q) ) {
+    $res[] = $row;
+  }
+  if ( count($res) > 0 ) {
+    foreach ( $res as $avail ) {
+      $sqlU = "UPDATE {bookings_free_cache} SET start='%s', end='%s' WHERE free_id = %d";
+      if ( $avail['start'] < $start ) {
+        if ( $avail['end'] > $end ) {
+          // split the availability into two
+          $q = db_query($sqlU, $avail['start'], $start, $avail['free_id']);
+          $q = db_query("INSERT INTO {bookings_free_cache} (resource_id, start, end)".
+                        " VALUES ( %d, '%s', '%s' )",
+                        $resource_id, $end, $avail['end']);
+          
+        } else {
+          // simply reset the end of this availability
+          $q = db_query($sqlU, $avail['start'], $start, $avail['free_id']);
+        }
+      } else {
+        if ( $avail['end'] > $end ) {
+          // simply reset the start of this availability
+          $q = db_query($sqlU, $end, $avail['end'], $avail['free_id']);
+        } else {
+          // Start of the availability after start of remove
+          // end not after end of removed availability -
+          // remove availability
+          $q = db_query("DELETE FROM {bookings_free_cache} WHERE free_id = %d", 
+                        $avail['free_id']);
+        }
+      }
+    }
+  }
+}
+
+
+/**
+ * Adds the given available time to the cache of the given resource and its
+ * children and parents.
+ * It is important to delete 
+ *
+ * Children and parents are always checked for availability.
+ * @param int $resource_id
+ *    ID of the resource to update
+ * @param UNIXTIME $start
+ *    Starting time of the new availability
+ * @param UNIXTIME $end
+ *    Ending time of the new availability
+ * @param int $record_id
+ *    Record-ID to ignore.
+ * @param boolean unchecked
+ *    Whether to check whether the resource is available or not prior to setting it.
+ * @param boolean $checkParents
+ *    Whether to check parents for availability and alter if needed.
+ * @param boolean $checkChildren
+ *    Whether to check children for availability and alter if needed.
+ */
+function bookingsapi_free_cache_availability_add( $resource_id, $start, $end, 
+          $record_id = null, $unchecked = TRUE, $checkParents = TRUE, 
+          $checkChildren = TRUE ) {
+  module_load_include('module', 'bookingsapi');
+  $availabilities = array();
+  $availabilities[] = array('start'=>$start, 'end'=>$end);
+
+  if ( $unchecked ) {
+    $bookings = bookingsapi_booking_recursive_list( $resource_id, 
+                BOOKINGSAPI_UNAVAILABLE, NULL, $start, $end, TRUE, TRUE, TRUE, $record_id );
+/*
+    foreach ( $bookings as &$val ) {
+      $val['start'] = date_convert($val['start'], DATE_DATETIME, DATE_UNIX);
+      $val['end']   = date_convert($val['end']  , DATE_DATETIME, DATE_UNIX);
+      
+    }
+*/
+
+    $availabilities = bookingsapi_free_cache_merge_availability( $availabilities, $bookings );
+ 
+    $bookings = bookingsapi_booking_recursive_list( $resource_id, 
+                BOOKINGSAPI_BOOKING, bookingsapi_booking_conflicting_status(), $start, $end, TRUE, TRUE, TRUE, $record_id ); 
+
+    $availabilities = bookingsapi_free_cache_merge_availability( $availabilities, $bookings );
+  }
+
+  foreach ( $availabilities as $a ) {
+    bookingsapi_free_cache_availability_add_nonrecursive($resource_id, $a['start'], $a['end']);
+    if ( $checkParents || $checkChildren ) {
+      $resource = bookingsapi_resource_load($resource_id);
+      if ( $checkParents && $resource->field_ba_parent[0]['nid'] > 0 ) {
+        $parent = bookingsapi_resource_load($resource->field_ba_parent[0]['nid']);
+        if ( $parent->status > 0 ) {
+          bookingsapi_free_cache_availability_add($resource->field_ba_parent[0]['nid'], $a['start'], $a['end'], $record_id, TRUE, TRUE, FALSE);
+        }
+      }
+      if ( $checkChildren ) {
+        $children = bookingsapi_resource_get_childs($resource_id);
+        foreach ( $children as $id ) {
+          bookingsapi_free_cache_availability_add($id, $a['start'], $a['end'], $record_id, TRUE, FALSE, TRUE);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Adds the given available time to the cache of the given resource.
+ *
+ * @param int $resource_id
+ *    ID of the resource to update
+ * @param UNIXTIME $start
+ *    Starting time of the new availability
+ * @param UNIXTIME $end
+ *    Ending time of the new availability
+ */
+function bookingsapi_free_cache_availability_add_nonrecursive( $resource_id, $start, $end ) {
+  if ( is_numeric($start) ) {
+    $start = date_convert($start, DATE_UNIX, DATE_DATETIME);
+  }
+  if ( is_numeric($end) ) {
+    $end   = date_convert($end,   DATE_UNIX, DATE_DATETIME);
+  }
+  $sql  = "SELECT free_id, start, end FROM {bookings_free_cache} WHERE resource_id = %d ".
+    " AND ( start = '%s' OR end = '%s' ) ORDER BY start asc";
+  $q    = db_query($sql, $resource_id, $end, $start);
+  $res = array();
+  while ( $row = db_fetch_array($q) ) {
+    $res[] = $row;
+  }
+  if ( count($res) == 0 ) {
+    // No bordering availability found, so we are adding a completely new one
+    // Its (quite simple) equivalent to the booking deleted
+    $sqlU = "INSERT INTO {bookings_free_cache} (resource_id, start, end) VALUES (%d, '%s', '%s')";
+    $q = db_query($sqlU, $resource_id, $start, $end);
+  } else if ( count($res) == 1 ) {
+    // We have one availability with existing start = new end (or vice vesa).
+    // So we simply update it to contain the new timespan (old start to new end OR
+    // new start to old end)
+    $sqlU = "UPDATE {bookings_free_cache} SET start='%s', end='%s' WHERE free_id = %d";
+    if ( $res[0]['start'] == $end ) {
+      $q = db_query($sqlU, $start, $res[0]['end'], $res[0]['free_id']);
+    } else {
+      $q = db_query($sqlU, $res[0]['start'], $end, $res[0]['free_id']);
+    }
+  } else if ( count($res) == 2 ) {
+    // We have an availability at each end (old1 start .. new start, new end .. old2 end)
+    // Merge those two into one.
+    $sqlU = "DELETE FROM {bookings_free_cache} WHERE free_id = %d";
+    $q = db_query($sqlU, $res[0]['free_id']);
+    $sqlU = "UPDATE {bookings_free_cache} SET start='%s', end='%s' WHERE free_id = %d";
+    $q = db_query($sqlU, $res[0]['start'], $res[1]['end'], $res[1]['free_id']);
+  } else {
+    watchdog("bfc_availability add", "Unknown result: count(res) = " . count($res) . ": <pre>" . print_r($res,true)."</pre><br>Params: 
+      Resource-ID: $resource_id, Start: $start, End: $end");
+  }
+}
+
+
+/**
+ * Implementation of hook_bookingsapi_variables
+ *
+ * This does NOT list all variables used in the free cache - the two variables used during cron jobs should not be altered by the user
+ */
+function bookingsapi_free_cache_bookingsapi_variables($op, &$variables, &$langcode) {
+  $variables = array_merge($variables, array(
+    'bookingsapi_free_cache_enable' => array(
+        'title'       => t('Enable the cache of free resources - do NOT disable once enabled', array(), $langcode),
+        'description' => t('Wether a cache is build representing available times. This greatly enhances the speed of conflict checks and is the ONLY way to list \'available times\'', array(), $langcode),
+        'type'        => 'bool',
+        'value'       => variable_set('bookingsapi_free_cache_enable', TRUE),
+      ),
+    'bookingsapi_free_cache_resPerCron' => array(
+        'title'       => t('Number of resources to be recalculates each cron-run', array(), $langcode),
+        'description' => t('During each cron run parts of the "free cache" are being rebuild in order to ensure consistency. The cache should be consistent even without those rebuilds, but one never knows... If too many resources are rebuild the maximum runtine of the cron job may be reached, so this value should not be set to high.', array(), $langcode),
+        'type'        => 'int',
+        'value'       => variable_set('bookingsapi_free_cache_enable', TRUE),
+      ),
+    'bookingsapi_free_cache_maxtime' => array(
+        'title'  =>  t('How long in advance to create the free cache. Dont set this to high!', array(), $langcode),
+        'value'  => variable_get('bookingsapi_free_cache_maxtime', 12),
+        'type'   => 'int',
+      ),
+    'bookingsapi_free_cache_unit' => array(
+        'title'  =>  t('Unit for the maximal time'),
+        'description' => t('Selects wether the maxtime specifies seconds (0), minutes (1), hours (2), days (3), months (4) or years (5)', array(), $langcode),
+        'value'  => variable_get('bookingsapi_free_cache_unit', BOOKINGSAPI_FREE_CACHE_MONTH),
+        'type'   => 'int',
+      ),
+    )
+  );
+}

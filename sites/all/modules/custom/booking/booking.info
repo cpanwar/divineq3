@@ -1,0 +1,4 @@
+name = booking
+description = "A Simple Booking Module."
+package = "Booking"
+core = 6.x

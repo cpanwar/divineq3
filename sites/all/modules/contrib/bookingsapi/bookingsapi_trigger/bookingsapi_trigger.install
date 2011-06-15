@@ -1,0 +1,18 @@
+<?php
+/**
+ * @file
+ * Bookings API Trigger Installer / Uninstaller
+ */
+
+/**
+ * Implementation of hook_install().
+ */
+function bookingsapi_trigger_install() {
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function bookingsapi_trigger_uninstall() {
+}
+

@@ -1,0 +1,125 @@
+<?php
+
+/* Schema definition to define two tables
+ * Table 1 : Should contain the following fields:
+ * order-id - Order id should be the transaction order id received from ubercart checkout.
+ * Instance Id - Autoincrement unique id for the instance, this will be primary key.
+ * Uid - User Id for which the package has been instantiated.
+ * Instance creation date - Timestamp when the order for that user was instantiated
+ * Validitiy - Number of days package is valid for
+ * Sessions - Number of Sessions, this should be updated (decremented by 1) whenever a new booking is made
+ * Instance upated - Time when this instance was last updated.
+ *
+ * Lets see if we can do the whole thing in just 1 table. The objective here is the following:
+ * When the user buys a product/package which has some number of sessions or validity, we need
+ * to create an intance of that order for that user so that we can maintain things like, the 
+ * validity of package for that particular user or number of sessions remaining for that user.
+ * When a booking is made ( using publicbookings ) we need to decrement num of sessions by 1
+ * when the booking is confirmed, also we need to show them bookings form only when they have
+ * sessions left or they haven't crossed their validity, we also need an admin screen for the
+ * admin to update things like validity or number of sessions for back office purposes, e.g. 
+ * booking for some reason did not convert into a yoga class, the num of session will be decremented
+ * but the admin at divine wellness may want to give them a compensation by increasing their session by 
+ * 1 or if the user wants the validity to be extended etc, so the admin can do it for special cases.
+ * So we need an admin interface to modify the instance of order. So what is an instance of order?
+ *
+ * When a user buys a package through ubercart, since this is not a physical object or electronic
+ * download we can't get away by servicing the request i.e. shipping it or sending the user download
+ * link. Our packages are long lived, they are yoga classes that are applicable for some period and 
+ * has some number of sessions appllicable, therefore we need to service them by creating instance
+ * of that package for each user that has bought the package, so that we can maintain the num of session,
+ * validity per user. This record in table 1 whenever a successful checkout happens is an instance of order.
+ *
+ *
+ *
+ *
+ *
+ */
+ 
+ /**
+ * @file
+ * Divine Bookings custom module install file.
+ */
+
+/**
+ * Define the 'yoga sessions' table structure.
+ *
+ * @return
+ *   The schema which contains the structure for the divine bookings module's tables.
+ */
+function booking_schema() {
+  $schema['booked_sessions'] = array(
+    'description' => 'A table containing sessions booked by users.',
+    'fields' => array(
+      'uid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'description' => 'Unique User ID.',
+      ),
+      'package_id' => array(
+        'description' => 'The package for the scheduled class.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),                
+      'resource_id' => array(
+        'description' => 'The yoga teacher for the scheduled class.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),                 
+      'time_slot' => array(
+        'description' => 'The time period for the scheduled class.',
+        'type' => 'text',        
+        'not null' => TRUE,
+        'default' => NULL,
+      ),           
+      'time_slot_utc' => array(
+        'description' => 'The time period for the scheduled class without timezone conversion.',
+        'type' => 'text',        
+        'not null' => TRUE,
+        'default' => NULL,
+      ), 
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Timestamp for when user was created.',
+      ), 
+    ),
+  );
+	$schema['slot_locked'] = array (
+		'fields' => array(
+			'slot' => array (
+		  	'description' => 'Locked slots',
+		    'type' => 'text',        
+		    'not null' => TRUE,
+		    'default' => NULL,
+      ),
+      
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Timestamp for when user was created.',
+      ), 
+    ),
+ );
+
+  return $schema;
+}
+/**
+ * Implements hook_install().
+ */
+function booking_install() {
+  drupal_install_schema('booking');
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function booking_uninstall() {
+  drupal_uninstall_schema('booking');
+} 

@@ -36,13 +36,14 @@ function user_instructor_register_form() {
 		'#title' => t('Account information'),
 		'#weight' => -10,
 	);	
+	/*
 	$form['account']['name'] = array(
 		'#type' => 'textfield',
 		'#title' => t('Username'),
 		'#size' => 60,
 		'#required' => TRUE,
 		'#weight' => -4,
-	);
+	);*/
 	$form['account']['mail'] = array(
 		'#type' => 'textfield',
 		'#title' => t('E-mail address'),
@@ -89,7 +90,7 @@ function user_instructor_register_form() {
  */
  
 function user_instructor_register_form_validate($form, &$form_state) { 
-
+	$form_state['values']['name'] = $form_state['values']['mail'];
 	user_module_invoke('validate', $form_state['values'], $form_state['values'], 'account');
 	$phoneStr = $form_state['values']['profile_inst_phone'];
 	$phoneL = strlen($phoneStr);
@@ -109,7 +110,8 @@ function user_instructor_register_form_validate($form, &$form_state) {
  * Implementation of hook_submit().
  */
 function user_instructor_register_form_submit($form, &$form_state) {
-
+	global $user;
+	//echo "<pre>";print_r($user);exit;
 	$pass = user_password();		
 	$profile_inst_dob = array(
 							'month' => $form_state['values']['profile_inst_dob']['month'],
@@ -117,7 +119,7 @@ function user_instructor_register_form_submit($form, &$form_state) {
 							'year' => $form_state['values']['profile_inst_dob']['year']
 							);				
 	$instructor_user = array(
-	  'name' => $form_state['values']['name'],
+	  'name' => $form_state['values']['mail'],
 	  'mail' => $form_state['values']['mail'],
 	  'picture' => '',
 	  'profile_inst_fname' => $form_state['values']['profile_inst_fname'],
@@ -137,10 +139,10 @@ function user_instructor_register_form_submit($form, &$form_state) {
 	$auto_user = user_save('', $instructor_user);
 	$rid = get_role_id($role='expert'); // Assign Role ID (per rtype)
 	$uid = $auto_user->uid;
-	$user = user_load($uid);
+	$userL = user_load($uid);
 		
 	// Update timezone filed in user tables
-	//db_query("UPDATE {users} SET tid=%d WHERE uid=%d", $user_timezone, $user->uid);
+	//db_query("UPDATE {users} SET tid=%d WHERE uid=%d", $user_timezone, $userL->uid);
 	
 	$locations = array();
 	$locations = $form_state['values']['locations'];	
@@ -150,17 +152,20 @@ function user_instructor_register_form_submit($form, &$form_state) {
 	// For mail template at Instructor registration
 	$to =  $form_state['values']['mail'];
 	$body = "";
-	$body .= "Hello ".$user->name."<br/><br/>";
+	$body .= "Hello ".$userL->name."<br/><br/>";
 	$body .= "Thank you for registering. Your application for an account is currently pending approval. Once it has been approved, you will receive another e-mail containing information about how to log in, set your password, and other details.<br/><br/>";
 	$body .= "Thanks<br/>";
 	$body .= "Divinewellness Team";
 	$params = array(
 					'body' => $body,
-					'subject' => 'Account details for '.$user->name.' at '.!site.' (pending admin approval)',
+					'subject' => 'Account details for '.$userL->name.' at '.!site.' (pending admin approval)',
 	);
-	drupal_set_message(t('Thank you for applying for an account. Your account is currently pending approval by the site administrator. In the meantime, a welcome message with further instructions has been sent to your e-mail address.'));	
-	drupal_mail('instructor_registration', 'register_approval_required', $to, language_default(), $params, variable_get('site_mail', ini_get('sendmail_from')));
 	
+	drupal_mail('instructor_registration', 'register_approval_required', $to, language_default(), $params, variable_get('site_mail', ini_get('sendmail_from')));
+	if($user->uid!='1'){
+		drupal_set_message(t('Thank you for applying for an account. Your account is currently pending approval by the site administrator. In the meantime, a welcome message with further instructions has been sent to your e-mail address.'));
+
+	}		
 	
 }
 
@@ -191,7 +196,7 @@ function instructor_registration_user($op, &$edit, &$account, $category = NULL){
  * Implementation of hook_form_alter
 */
 function instructor_registration_form_alter(&$form, &$form_state, $form_id){
-	//echo "<pre>";print_r($form);exit;
+
 	global $user;
 	$account  = user_load(arg(1));
 	
@@ -213,6 +218,7 @@ function instructor_registration_form_alter(&$form, &$form_state, $form_id){
 	}
 	
 	if($form_id=='user_profile_form'){
+		$form['account']['name']['#type'] = 'hidden';
 		$thisAccountsRole = getUsersUniqueRole($user->uid);
 		if($thisAccountsRole!='expert'){
 			unset($form['locations']);
@@ -236,8 +242,6 @@ function instructor_registration_form_alter(&$form, &$form_state, $form_id){
 		$form['instructor_info']['Instructor information']['profile_inst_dob']['#process'] = array('custom_date');
   //$form['instructor_info']['Instructor information']['profile_inst_dob']['#default_value'] = array('0' => 'Month', '0' => 'Day', '0' => 'Year');		
 		*/
-		
-		//echo "<pre>";print_r($form);exit;
 	}
 }
 

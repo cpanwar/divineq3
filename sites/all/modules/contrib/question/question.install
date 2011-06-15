@@ -1,0 +1,66 @@
+<?php
+// $Id: question.install,v 1.2.2.4 2010/04/04 20:07:43 tanoshimi Exp $
+
+/**
+  * @file
+  * Describes Question tables
+  */
+
+function question_schema() {
+  $schema['question_queue'] = array(
+      'fields' => array(
+           'qid' => array('type' => 'serial', 'not null' => TRUE, 'disp-width' => '10'),
+           'questioner' => array('type' => 'varchar', 'length' => '50', 'not null' => TRUE, 'default' => ''),
+           'quid' => array('type' => 'int', 'not null' => TRUE, 'default' => 0, 'disp-width' => '10'),
+           'question' => array('type' => 'text', 'not null' => TRUE)),
+      'primary key' => array('qid'),
+  );
+  $schema['question_node'] = array(
+      'fields' => array(
+           'nid' => array('type' => 'int', 'not null' => TRUE, 'default' => 0, 'disp-width' => '10'),
+           'questioner' => array('type' => 'varchar', 'length' => '50', 'not null' => TRUE, 'default' => ''),
+           'quid' => array('type' => 'int', 'not null' => TRUE, 'default' => 0, 'disp-width' => '10'),
+           'question' => array('type' => 'text', 'size' => 'big', 'not null' => TRUE),
+           'q_format' => array('type' => 'int', 'not null' => TRUE, 'default' => 0, 'disp-width' => '4'),
+           'answer' => array('type' => 'text', 'size' => 'big', 'not null' => TRUE),
+           'a_format' => array('type' => 'int', 'not null' => TRUE, 'default' => 0, 'disp-width' => '4')),
+      'primary key' => array('nid'),
+  );
+  return $schema;
+}
+
+function question_install() {
+  drupal_install_schema('question');
+}
+
+function question_update_1() {
+  $ret = array();
+  db_add_primary_key($ret, 'question_node', array('nid'));
+  db_add_primary_key($ret, 'question_queue', array('qid'));
+  return $ret;
+}
+
+function question_update_6001() {
+  $ret = array();
+  db_drop_primary_key($ret, 'question_queue');
+  return $ret;
+}
+
+function question_update_6002() {
+  $ret = array();
+  db_change_field(
+    $ret,           //Results
+    'question_queue',         //Table name
+    'qid',            //Old column name
+    'qid',            //New column name
+    array('type' => 'serial', 'not null' => TRUE),  //Field spec
+    array('primary key' => array('qid'))    //Index spec
+  );
+  return $ret;
+}
+
+function question_uninstall() {
+  drupal_uninstall_schema('question');
+  variable_del('question_require_registered');
+  variable_del('question_thanks');
+}

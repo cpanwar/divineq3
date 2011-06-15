@@ -1,0 +1,1714 @@
+<?php
+
+// All dates are saved as UTC to the database and presented to the client as requested.
+
+/**
+ * @file
+ * Bookings API
+ */
+
+module_load_include('inc','node','node.pages');
+module_load_include('inc', 'node', 'content_types');  
+
+/**
+ * The given schedule is a normal booking.
+ */
+define('BOOKINGSAPI_BOOKING', 1);
+/**
+ * Either a schedule defining a single unavailability of a resource or 
+ * a default-availability of UNAVAILABLE with a resource.
+ * 
+ * Unavailable resources are only available when an additional
+ * availability is defined.
+ */
+define('BOOKINGSAPI_UNAVAILABLE', 2);
+/**
+ * Either a schedule defining a single availability of a resource or 
+ * a default-availability of AVAILABLE with a resource.
+ * 
+ * Available resources are available unless an additional
+ * unavailability is defined.
+ */
+define('BOOKINGSAPI_AVAILABLE', 3);
+
+/**
+ * Booking with confirmed Email, but not approved by an administrator.
+ */
+define('BOOKINGSAPI_STATUS_PENDING', 1);
+/**
+ * Booking approved by an administrator.
+ */
+define('BOOKINGSAPI_STATUS_FINALIZED', 2);
+/**
+ * Booking cancelled by an administrator or the owner.
+ */
+define('BOOKINGSAPI_STATUS_CANCELLED', 3);
+/**
+ * Booking with unconfirmed Email. Not approved by an administrator.
+ */
+define('BOOKINGSAPI_STATUS_UNCONFIRMED', 4);
+/**
+ * Booking denied by an administrator.
+ */
+define('BOOKINGSAPI_STATUS_DENIED', 5);
+
+/**
+ * No conflicts could be found.
+ */
+define('BOOKINGSAPI_CONFLICTS_NO', 0);
+/**
+ * Potential conflicts could be found.
+ */
+define('BOOKINGSAPI_CONFLICTS_POTENTIAL', 1);
+/**
+ * Booking conflicts with another booking.
+ */
+define('BOOKINGSAPI_CONFLICTS_CONFLICT', 2);
+/**
+ * Booking on a disabled resource.
+ */
+define('BOOKINGSAPI_CONFLICTS_DISABLED', 3);
+/**
+ * Booking of a resource later then the allowed timeframe.
+ */
+define('BOOKINGSAPI_CONFLICTS_LATE', 4);
+
+define('BOOKINGSAPI_RESOURCE_TYPE', 'bookingsapi_resource');
+define('BOOKINGSAPI_RESOURCE_FORMAT', 1);
+
+/**
+ * Returns the name to a numeric conflict type, the id to a conflict name or the list of conflict types.
+ *
+ * Conflict types are BOOKINGSAPI_CONFLICTS_*
+ *
+ * @param mixed $value
+ * @return mixed
+ */
+function bookingsapi_conflict_type($value) {
+  $types = array( 
+    BOOKINGSAPI_CONFLICTS_NO        => t('No conflict'),
+    BOOKINGSAPI_CONFLICTS_POTENTIAL => t('Potential conflict'),
+    BOOKINGSAPI_CONFLICTS_CONFLICT  => t('Hard conflict'),
+    BOOKINGSAPI_CONFLICTS_DISABLED  => t('Disabled resource'),
+    BOOKINGSAPI_CONFLICTS_LATE      => t('Booking too late'),
+      );
+
+  if ( is_numeric($value) ) {
+    return $types[$value];
+  } else if ( is_string($value) ) {
+    foreach ( $types as $k => $v ) {
+      if ( $v == $value ) {
+        return $k;
+      }
+    }
+  } else {
+    return $types;
+  }
+}
+
+/**
+ * Returns the numeric code to a record type name or code.
+ * @param string|int $value
+ *   if string, will return int of the corresponding code.
+ *   if int, will return $value
+ * @return int Numeric code of the given record type or code.
+ */
+function bookingsapi_numeric_record_types($value) {
+  if ( is_numeric($value) ) {
+    return (int) $value;
+  }
+  else {
+    return bookingsapi_record_types($value);
+  }
+}
+
+/**
+ * Return the name of a type code, or vice versa. Intended for interpreting the ENUM type column.
+ *
+ * @param string|int $code
+ *  if string, will return int of the corresponding code.
+ *  if int, will return translated name of the code.
+ *  if NULL, returns array of codes as keys, and translated strings as values
+ * @return string|int
+ */
+function bookingsapi_record_types($code = NULL) {
+  $types = array(
+    BOOKINGSAPI_BOOKING => t('Booking'),
+    BOOKINGSAPI_UNAVAILABLE => t('Unavailable'),
+    BOOKINGSAPI_AVAILABLE => t('Available'),
+  );
+  if (!isset($code)) {
+    return $types;
+  }
+  if (is_numeric($code)) {
+    return $types[$code];
+  } 
+  else {
+    $types = array(
+      'booking' => BOOKINGSAPI_BOOKING,
+      'unavailable' => BOOKINGSAPI_UNAVAILABLE,
+      'available' => BOOKINGSAPI_AVAILABLE,
+    );
+    return $types[strtolower($code)];
+  }
+}
+
+/**
+ * Returns the numeric code to a record status or code.
+ * @param string|int $value
+ *   if string, will return int of the corresponding code.
+ *   if int, will return $value
+ * @return int Numeric code of the given record status or code.
+ */
+function bookingsapi_numeric_record_status($value) {
+  if (is_numeric($value)) {
+    return (int) $value;
+  }
+  else {
+    return bookingsapi_record_status($value);
+  }
+}
+
+/**
+ * Return the name of a status code, or vice versa. Intended for interpreting the ENUM status column.
+ *
+ * @param string|int $code
+ *  if string, will return int of the corresponding code.
+ *  if int, will return translated name of the code.
+ *  if NULL, returns array of codes as keys, and translated strings as values
+ * @return string|int
+ */
+function bookingsapi_record_status($code = NULL) {
+  $types = array(
+    BOOKINGSAPI_STATUS_PENDING => t('Pending'),
+    BOOKINGSAPI_STATUS_FINALIZED => t('Finalized'),
+    BOOKINGSAPI_STATUS_CANCELLED => t('Cancelled'),
+    BOOKINGSAPI_STATUS_UNCONFIRMED => t('Unconfirmed'),
+    BOOKINGSAPI_STATUS_DENIED => t('Denied'),
+  );
+  if (!isset($code)||is_null($code)) {
+    return $types;
+  }
+  if (is_numeric($code)) {
+    return $types[$code];
+  } 
+  else {
+    $types = array(
+      'pending' => BOOKINGSAPI_STATUS_PENDING,
+      'finalized' => BOOKINGSAPI_STATUS_FINALIZED,
+      'cancelled' => BOOKINGSAPI_STATUS_CANCELLED,
+      'unconfirmed' => BOOKINGSAPI_STATUS_UNCONFIRMED,
+      'denied' => BOOKINGSAPI_STATUS_DENIED,
+    );
+    return $types[strtolower($code)];
+  }
+}
+
+/**
+ * Change the status code of a record and all its occurrences.
+ *
+ * @param array $record
+ *  Only key 'record_id' is required.
+ * @param int $status_code
+ *  A BOOKINGSAPI_STATUS_ constant.
+ * @return bool
+ *  TRUE if record found, FALSE otherwise.
+ */
+function bookingsapi_record_status_change($record, $status_code) {
+  // check for record existence first.
+  $record = bookingsapi_record_load($record['record_id']);
+  if ($record) {
+    // call hook
+    $config = array('status' => $status_code);
+    bookingsapi_extend('bookingsapi_record_status', 'change', $record, $config);
+
+    // TODO: combine 2 queries into one.
+    $sql = 'UPDATE {bookings_records} SET status=%d WHERE record_id=%d';
+    db_query($sql, $status_code, $record['record_id']);
+    $sql = 'UPDATE {bookings_schedules} SET status=%d WHERE record_id=%d';
+    db_query($sql, $status_code, $record['record_id']);
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * Implementation of hook_elements().
+ */
+function bookingsapi_elements() {
+  module_load_include('inc','bookingsapi','bookingsapi.forms');
+  return _bookingsapi_elements();
+}
+
+/**
+ * Returns a list of status that conflict with new bookings.
+ *
+ * This list includes BOOKINGSAPI_STATUS_FINALIZED and may include _PENDING
+ * and _UNCONFIRMED, depending on the administrative settings.
+ *
+ * @return array
+ *  List of status conflicting.
+ */
+function bookingsapi_booking_conflicting_status() { 
+  $conflicts = array( BOOKINGSAPI_STATUS_FINALIZED );
+  if ( variable_get('bookingsapi_pending_conflicts', FALSE) ) {
+    $conflicts[] = BOOKINGSAPI_STATUS_PENDING;
+  } 
+  if ( variable_get('bookingsapi_unconfirmed_conflicts', FALSE) ) {
+    $conflicts[] = BOOKINGSAPI_STATUS_UNCONFIRMED;
+  }
+  return $conflicts;
+}
+
+/**
+ * Returns whether a booking with the given status would raise a conflict.
+ *
+ * @param int $status
+ *   Status to check.
+ * @return boolean
+ *   TRUE if a booking with that status raises a conflict, FALSE otherwise.
+ */
+function bookingsapi_booking_status_conflicts( $status ) {
+  return in_array($status, bookingsapi_booking_conflicting_status());
+}
+
+/**
+ * Returns whether the given booking has a conflicting status.
+ *
+ * @param array $record
+ *   Record to check.
+ * @return boolean
+ *   TRUE if a booking with that status raises a conflict, FALSE otherwise.
+ * @see bookingsapi_booking_status_conflicts
+ */
+function bookingsapi_booking_status_conflicts_booking( $record ) {
+  return bookingsapi_booking_status_conflicts($record['status']);
+}
+
+/**
+ * Get all applicable records within a given date+timeframe
+ *
+ * @param string $select
+ *  expressions that come immediately after SELECT
+ * @param array $intervals
+ *  containing arrays of intervals, where [0] is start, and [1] is end
+ * @param string $where
+ *  expressions that come immediately after WHERE, appended to the DATETIME clauses
+ * @param string $after_where
+ * @param int $limit
+ */
+function bookingsapi_timeframe_survey($select = '*', $intervals, $where = '', $after_where = '', $limit = 0) {
+  if (!empty($where)) $where .= ' AND';
+  /* get records that fulfill the $where and:
+     - start or end within the given intervals, OR
+     - encompass the start or end of the given intervals
+   */
+  $using_mysql_intervals = (boolean) stripos($intervals[0][1], 'INTERVAL');
+  $interval_sql = '';
+  foreach ($intervals as $i) {
+    $i[1] = $using_mysql_intervals ? $i[1] : "'{$i[1]}'";
+    $interval_sql .= "({bookings_schedules}.start BETWEEN '{$i[0]}' AND {$i[1]} OR {bookings_schedules}.end BETWEEN '{$i[0]}' AND {$i[1]}) OR
+           ('{$i[0]}' BETWEEN {bookings_schedules}.start AND {bookings_schedules}.end OR {$i[1]} BETWEEN {bookings_schedules}.start AND {bookings_schedules}.end) OR ";
+  }
+  $interval_sql = substr($interval_sql, 0, -4);
+  $sql = "SELECT SQL_NO_CACHE $select FROM {bookings_schedules}
+          WHERE $where
+          ( $interval_sql ) $after_where";
+  if ($limit > 0) {
+      $sql .= " LIMIT $limit";
+  }
+  $hook = bookingsapi_extend('bookingsapi_timeframe', 'survey', $sql, $select);
+  if (!empty($hook['sql']) && $select != '1') {
+      $sql = $hook['sql'];
+  }
+  $q = db_query($sql);
+  $survey = array();
+  while ($row = db_fetch_array($q)) {
+    $survey[] = $row;
+  }
+  return $survey;
+}
+
+/**
+ * Iterate the date values and format as a DATETIME
+ *
+ * @param array $parsed_exceptions
+ */
+function bookingsapi_rrule_dates($parsed_dates) {
+  $dates = array();
+  foreach ($parsed_dates as $date) {
+    $dates[] = date_ical_date($date);
+   }
+  return $dates;
+ }
+
+
+/**
+ * Calculate the exact DATETIME intervals for all given date instances.
+ *
+ * @param array $instance_dates
+ *  interval dates, with or without the 00:00:00 stripped off, from date_repeat_calc()
+ * @param string $start
+ *  DATETIME of the start of the first occurrence
+ * @param string $end
+ *  DATETIME of the end of the first occurrence
+ * @param boolean $use_mysql_interval
+ *  if FALSE, the end DATETIME of each interval will be calculated using PHP
+ *  if TRUE, the end of each interval will be in a format to instruct MySQL to calculate
+ */
+function bookingsapi_interval_build($instance_dates, $start, $end, $use_mysql_interval = FALSE) {
+  $intervals = array();
+  $start_time = substr($start, 11);
+  // remove 00:00:00 from instance dates if necessary
+  if (strlen($instance_dates[0]) > 10) {
+    foreach ($instance_dates as &$instance_date) {
+      $instance_date = substr($instance_date, 0, 10);
+    }
+  }
+  $duration = date_convert($end, DATE_DATETIME, DATE_UNIX) - date_convert($start, DATE_DATETIME, DATE_UNIX);
+  foreach ($instance_dates as $date) {
+    $i = array();
+    $i[0] = "$date $start_time";
+    if ($use_mysql_interval) {
+      $i[1] = "'{$i[0]}' + INTERVAL $duration SECOND";
+    } 
+    else {
+      $i[1] = date_convert(date_convert($i[0], DATE_DATETIME, DATE_UNIX) + $duration, DATE_UNIX, DATE_DATETIME);
+    }
+    $intervals[] = $i;
+  }
+  return $intervals;
+}
+
+/**
+ * Given a record, parse its RRULE into an array of exceptions and recurrences.
+ *
+ * @param array &$record
+ * @param array &$exceptions
+ *  EXDATEs formatted as DATETIMEs
+ * @param array &$intervals
+ *  All recurrences formatted as DATETIMEs
+ */
+function bookingsapi_parse_rrule(&$record, &$exceptions, &$intervals) {
+  if ( ! is_array($record) || !array_key_exists('rrule', $record) || empty($record['rrule']) || strpos($record['rrule'], 'FREQ=NONE')) {
+    $record['rrule'] = '';
+    $intervals = array( array($record['start'], $record['end']) );
+  } 
+  else {
+    $parts = date_repeat_split_rrule($record['rrule']);
+    $exceptions = bookingsapi_rrule_dates((array) $parts[1]);
+    $additions = bookingsapi_rrule_dates((array) $parts[2]);
+    $intervals = date_repeat_calc($record['rrule'], $record['start'], $record['rrule_until'], $exceptions, NULL, $additions);
+    $intervals = bookingsapi_interval_build($intervals, $record['start'], $record['end']);
+  }
+}
+
+/**
+ * Checks for conflicts across all instances of a record.
+ * 
+ * @param array $record
+ *  Needs resource_id, start and end, rrule is optional
+ * @param boolean $includePotentials
+ *  Whether to include potential conflicts as conflicts or not. Increases
+ *  calculation time.
+ * @param array &$listArray
+ *  If set to an array, this array will be overwritten with a list of 
+ *  conflicts found. Increases calculation time. This array WILL be overwritten.
+ * @param int $maxNr
+ *  Maximal number of conflits to return (0 to ignore).
+ * @return int
+ *  Returns one of BOOKINGSAPI_CONFLICTS_*. A FALSE/0 value means "no conflicts".
+ *  If $includePotentials is FALSE, BOOKINGSAPI_CONFLICTS_NO will be returned
+ *  without checking for potential conflicts.
+ *  A return code of BOOKINGSAPI_CONFLICTS_CONFLICT with an empty list might
+ *  mean that an unavailable resource (without single availability) was 
+ *  selected, thus it is NOT sufficient to rely on the size of $listArray.
+ *
+ */
+function bookingsapi_conflict_check( $record, $includePotentials = FALSE, 
+    &$listArray = NULL, $maxNr = 0 ) {
+  $resource = bookingsapi_resource_load($record['resource_id']);
+
+  // Invalid resource or disabled resource with a booking - don't bother to check for conflicts
+  // Yes, this means we are allowing "availability settings" for disabled resources
+  // because availabilities are inherited
+  if ( ! is_object($resource) || $record['type'] == BOOKINGSAPI_BOOKING && ! $resource->status ) {
+    if ( is_array($listArray) ) {
+      $listArray[] = array();
+    }
+    return BOOKINGSAPI_CONFLICTS_DISABLED;
+  }
+
+  $now = date_now();
+  $sobj = date_convert($record['start'], DATE_DATETIME, DATE_OBJECT);
+
+  if ( $record['type'] == BOOKINGSAPI_BOOKING && // It is a booking
+       date_difference($now, $sobj, 'minutes') < variable_get('bookingsapi_time_before_booking',0) && // but not enough time before the booking
+       !(module_exists('publicbookings') && user_access('administer bookings')) // but an admin-user (Public Bookings!) can ignore the time setting
+     ) {
+    if ( is_array($listArray) ) {
+      $listArray[] = array();
+    }
+    return BOOKINGSAPI_CONFLICTS_LATE;
+  }
+    
+
+  $intervals = array();
+  $exceptions = array();
+  bookingsapi_parse_rrule($record, $exceptions, $intervals);
+
+  // $intervals now contains an array( array( 0=>start, 1=>end ), ... )
+
+  $return = BOOKINGSAPI_CONFLICTS_NO;
+
+  $new = ! isset($record['record_id']);
+  $conflictsOld = FALSE;
+
+  if ( ! $new ) {
+    $recOld = bookingsapi_booking_load( $record['record_id'] );
+    $conflictsOld = bookingsapi_booking_status_conflicts($recOld['status']);
+    $new = ! $conflictsOld;
+  }
+
+  $conflictsNew = bookingsapi_booking_status_conflicts($record['status']);
+
+  $config = array(
+      'new'             => ! isset($record['record_id']),
+      'conflict_change' => $conflictsNew != $conflictsOld,
+      'time_change'     => ! (  $recOld['rrule'] == $record['rrule'] && 
+                                $record['start'] == $recOld['start'] && 
+                                $record['end']   == $recOld['end'] ),
+      'resource_change' => array_key_exists('resource_id_old', $record) && $record['resource_id'] != $record ['resource_id_old'],
+      'conflict_array'  => &$listArray,
+      'status'          => &$return,
+      'abort_after'      => FALSE,
+      'exceptions'      => &$exceptions,
+      'intervals'       => &$intervals,
+      'record_old'      => &$recordOld,
+      );
+  bookingsapi_extend('bookingsapi_conflict_check', 'check', $record, $config);
+
+  if ( $config['abort_after'] ) {
+    return $return;
+  }
+
+
+  // Its an old booking, that was conflicting previously without time-changes
+  // -> no changes
+  if ( ! $config['resource_change'] && ! $new && $conflictsOld && ! $config['time_change'] ) {
+    return BOOKINGSAPI_CONFLICTS_NO;
+  }
+
+  // Now check for availabilities
+  if ( $resource->field_ba_defaultavailability[0]['value'] == BOOKINGSAPI_UNAVAILABLE ) {
+    // Build a list of availabilities
+    // Possible avails must end after the booking starts and must start before it ends
+    foreach ( $intervals as $rec ) {
+      $timeLeft = array(
+          'start' => $rec[0],
+          'end'   => $rec[1],
+          'type'  => BOOKINGSAPI_UNAVAILABLE,
+          'status'=> BOOKINGSAPI_STATUS_FINALIZED,
+          );
+      $avail = bookingsapi_booking_recursive_list( $resource->nid,
+          BOOKINGSAPI_AVAILABLE, NULL, $rec[0], $rec[1], TRUE, TRUE, TRUE, $record['record_id']);
+
+      $startU = date_convert($rec[0], DATE_DATETIME, DATE_UNIX);
+      $endU   = date_convert($rec[1], DATE_DATETIME, DATE_UNIX);
+
+      $s = $endU;
+      $e = $startU;
+
+      $c = 0;
+      while ( $c < count($avail) && $s > $startU && $e < $endU ) {
+        $row = $avail[$c++];
+        $row['s'] = date_convert($row['start'], DATE_DATETIME, DATE_UNIX);
+        $row['e'] = date_convert($row['end'], DATE_DATETIME, DATE_UNIX);
+        if ( $row['s'] < $s ) {
+          $s = $row['s'];
+        }
+        if ( $row['e'] > $e ) {
+          $e = $row['e'];
+        }
+      } 
+      // This schedule is NOT available. Save it as unavailable or exit
+      if ( ! ($s <= $startU && $e >= $end) ) {
+        $return = BOOKINGSAPI_CONFLICTS_CONFLICT;
+        if ( is_array($listArray) ) {
+          $lisArray[] = $timeLeft;
+          if ( $maxNr > 0 && count($listArray) >= $maxNr ) {
+            return $return;
+          }
+        } else {
+          return $return;
+        }
+      }
+    }
+  } 
+
+  // Now we want know that either there are conflicts or that we want to check for potential conflicts.
+  $status = bookingsapi_booking_conflicting_status();
+  if ( $includePotentials ) {
+    if ( ! in_array(BOOKINGSAPI_STATUS_PENDING, $status) ) {
+      $status[] = BOOKINGSAPI_STATUS_PENDING;
+    }
+  }
+
+
+  foreach ( $intervals as $rec ) {
+    $bookings = bookingsapi_booking_recursive_list( $resource->nid, 
+        BOOKINGSAPI_UNAVAILABLE, NULL, $rec[0], $rec[1], 
+        TRUE, TRUE, TRUE, $record['record_id']);
+    $bookings = array_merge( $bookings, bookingsapi_booking_recursive_list( $resource->nid, 
+          BOOKINGSAPI_BOOKING, $status, $rec[0], $rec[1], 
+          TRUE, TRUE, TRUE, $record['record_id'] ) );
+
+    foreach ( $bookings as $conflict ) {
+      if ( $conflict['type'] == BOOKINGSAPI_UNAVAILABLE ) {
+        $return = BOOKINGSAPI_CONFLICTS_CONFLICT;
+        if ( ! is_array($listArray) ) {
+          return $return;
+        }
+      } else {
+        if ( bookingsapi_booking_status_conflicts($conflict['status']) ) {
+          $return = BOOKINGSAPI_CONFLICTS_CONFLICT;
+          if ( ! is_array($listArray) ) {
+            return $return;
+          }
+        } else if ( $return == BOOKINGSAPI_CONFLICTS_NO ) {
+          $return = BOOKINGSAPI_CONFLICTS_POTENTIAL;
+          // With existing bookings we must continue to search for conflicts
+          // with new bookings we know there are new conflicts (above IF) and
+          // thus we found the worst Conflict possible.
+          if ( ! is_array($listArray) && $new ) {
+            return $return;
+          }
+        }
+      }
+      if ( is_array($listArray) ) {
+        $listArray[] = $conflict;
+        if ( $maxNr > 0 && count($listArray) >= $maxNr ) {
+          return $return;
+        }
+      }
+    }
+  }
+
+  return $return;
+}
+
+/**
+ * Extract the UNTIL value in an RRULE and formats it into a DATETIME.
+ *
+ * @param string $rrule
+ *  an RRULE
+ * @return string
+ *  the UNTIL value formatted as a DATETIME
+ */
+function bookingsapi_rrule_until_as_dt($rrule) {
+  include_once('./'. drupal_get_path('module', 'date_api') .'/date_api_ical.inc');
+  $seg = preg_split('/.*UNTIL=([0-9]*T[0-9]*);.*/', $rrule, 2, PREG_SPLIT_DELIM_CAPTURE);
+  if (empty($seg)) {
+    return;
+  }
+  $until = date_ical_parse_date(';UNTIL=', $rrule/*$seg[1]*/);
+  return $until['datetime'];
+}
+
+/**
+ * Compares a record's instances in the table with what's expected with the RRULE,
+ * making the necessary adjustments such that the record's RRULE and the instances in
+ * the table are synchronized. Any given record has at least one instance.
+ *
+ * @param array $record
+ */
+function _bookingsapi_record_instances_save(&$record) {
+  if (empty($record['record_id'])) return;
+  if (!empty($record['rrule'])) {
+    $parts = date_repeat_split_rrule($record['rrule']);
+    $exceptions = bookingsapi_rrule_dates((array) $parts[1]);
+    $additions = bookingsapi_rrule_dates((array) $parts[2]);
+    $instance_dates = date_repeat_calc($record['rrule'], $record['start'], $record['rrule_until'], $exceptions, NULL, $additions);
+  } 
+  else {
+    $instance_dates = array($record['start']);
+  }
+  // remove the '00:00:00' from each
+  foreach ($instance_dates as &$v) {
+    $v = substr($v, 0, 10);
+  }
+  $start_time = substr($record['start'], 11);
+  $end_time = substr($record['end'], 11);
+  $duration = date_convert($record['end'], DATE_DATETIME, DATE_UNIX) - date_convert($record['start'], DATE_DATETIME, DATE_UNIX);
+  $num_expected = count($instance_dates);
+  $insertion_sql = 'INSERT INTO {bookings_schedules} (type, resource_id, start, end, record_id, status) VALUES ';
+  $sql = "SELECT COUNT(*) AS `count`, MAX(start) AS `last_start`, MAX(end) AS `last_end`,
+                 MIN(start) AS `first_start`, MIN(end) AS `first_end` FROM {bookings_schedules}
+          WHERE record_id={$record['record_id']} GROUP BY record_id LIMIT 1";
+  $cur_instance = db_fetch_array(db_query($sql));
+  $cur_count = $cur_instance ? $cur_instance['count'] : 0;
+
+  if (empty($record['rrule']) && $cur_count > 0) {
+    // if the RRULE is empty, delete all instances of it except the original
+    $sql = "DELETE FROM {bookings_schedules} WHERE record_id=%d AND start<>'%s'";
+    db_query($sql, $record['record_id'], $record['start']);
+  }
+
+  if ($cur_count < 1) {
+    // this repeat is new, so create all instances in one query
+    $intervals = bookingsapi_interval_build($instance_dates, $record['start'], $record['end'], FALSE);
+    $sql = $insertion_sql;
+    foreach ($intervals as $date) {
+      $sql .= "({$record['type']}, {$record['resource_id']}, '{$date[0]}', '{$date[1]}', {$record['record_id']}, {$record['status']}), ";
+    }
+    $sql = substr($sql, 0, -2);
+    db_query($sql);
+  } 
+  else {
+    // this repeat is not new.
+    // if the date of the last instance doesn't match the expected last instance, the UNTIL has most likely changed
+    $UNTIL_changed = substr($cur_instance['last_end'], 0, 10) != $instance_dates[$num_expected - 1];
+    // if the date of the first instance doesn't match the original, then the start date has changed
+    $start_date_changed = substr($cur_instance['first_start'], 0, 10) != $instance_dates[1];
+    // compare start and end times
+    $times_changed = $start_time != substr($cur_instance['first_start'], 11) || $end_time != substr($cur_instance['first_end'], 11);
+
+    if (!$UNTIL_changed && !$start_date_changed && $times_changed) {
+      // here, if the expected # of instances doesn't match the existing number,
+      // then the only possibility is that EXDATEs have changed
+      if ($cur_count != $num_expected) {
+        // get a list of the instance dates already in table
+        $sql = 'SELECT DATE(start) AS `date` FROM {bookings_schedules} WHERE record_id=%d ORDER BY start asc';
+        $q = db_query($sql, $record['record_id']);
+        $cur_dates = array();
+        while ($date = db_fetch_array($q)) {
+          $cur_dates[] = $date['date'];
+        }
+        // find the expected instances that are not present in the table
+        $insert = array_diff($instance_dates, $cur_dates);
+        // insert these missing instances
+        $sql = $insertion_sql;
+        foreach ($insert as $v) {
+          $instance_start = "$v $start_time";
+          $instance_end = "'$instance_start' + INTERVAL $duration SECOND";
+          $sql .= "({$record['type']}, {$record['resource_id']}, '$instance_start', $instance_end, {$record['record_id']}, {$record['status']}), ";
+        }
+        $sql = substr($sql, 0, -2);
+        db_query($sql);
+
+        // delete everything that's on the current EXDATE list but still present in table
+        $in = '';
+        foreach ($exceptions as $date) {
+          $in .= "'$date',";
+        }
+        $in = substr($in, 0, -1);
+        $sql = "DELETE FROM {bookings_schedules} WHERE DATE(start) IN ($in) AND record_id=%d";
+        db_query($sql, $record['record_id']);
+      }
+
+      // only the times have changed, so simply update all instances
+      $sql = "UPDATE {bookings_records}
+              SET start=CONCAT( DATE(start) , ' ', '%s'), end=CONCAT( DATE(end), ' ', '%s')
+              WHERE repeat_parent=%d";
+      db_query($sql, $start_time, $end_time, $record['record_id']);
+      return;
+    }
+
+    // other situations are a lot more complex. for now, do things the easy way and just start fresh
+    // TODO: there is a more complicated solution to this that doesn't involve such sweeping changes to the table
+    if ($UNTIL_changed || $start_date_changed || $cur_count != $num_expected) {
+      db_query('DELETE FROM {bookings_schedules} WHERE record_id=%d', $record['record_id']);
+      $sql = $insertion_sql;
+      foreach ($instance_dates as $v) {
+        $instance_start = "$v $start_time";
+        $instance_end = "'$instance_start' + INTERVAL $duration SECOND";
+        $sql .= "({$record['type']}, {$record['resource_id']}, '$instance_start', $instance_end, {$record['record_id']}, {$record['status']}), ";
+      }
+      $sql = substr($sql, 0, -2);
+      db_query($sql);
+    }
+  }
+}
+
+/**
+ * Save booking to database, if there are no time conflicts.
+ * Also passes it to hooked modules for changes before saving.
+ *
+ * @param array $booking
+ * @param bool $return_object
+ * @return Array(boolean,mixed) where the boolean indicates wether the booking was a success.
+ *          If the first parameter is true, the second is one of SAVED_NEW or SAVED_UPDATED
+ *          If the first parameter is false, the second is one of FALSE (SQL issue) 
+ *          or BOOKINGSAPI_CONFLICTS_*
+ */
+function bookingsapi_booking_save(&$booking, $return_object = FALSE) {
+  if ( is_object($booking) ) {
+    $booking = (array) $booking;
+  }
+  if ( ! array_key_exists('type', $booking) || ! in_array($booking['type'], bookingsapi_record_types())) {
+    $booking['type'] = BOOKINGSAPI_BOOKING;
+  }
+  $op = empty($booking['record_id']) ? 'insert' : 'update';
+  if (isset($booking['record_id'])) {
+    $old_record = bookingsapi_booking_load($booking['record_id']);
+    if (bookingsapi_numeric_record_status($old_record['status']) != $booking['status']) {
+      bookingsapi_record_status_change($booking,$booking['status']);
+    }
+  }
+  $status = bookingsapi_record_save($booking);
+  if (!$return_object) {
+    $booking = (array) $booking;
+  }
+  return $status;
+}
+
+/**
+ * Changes the booked resource of an existing booking.
+ *
+ * @param array $booking
+ * @param int $resource_id_new
+ * @return Array(boolean,mixed) where the boolean indicates wether the booking was a success.
+ *          If the first parameter is true, the second is one of SAVED_NEW or SAVED_UPDATED
+ *          If the first parameter is false, the second is one of FALSE (SQL issue) 
+ *          or BOOKINGSAPI_CONFLICTS_*
+ */
+function bookingsapi_booking_resource_change( &$booking, $resource_id_new ) {
+  $booking['resource_id_old'] = (int) $booking['resource_id'];
+  $booking['resource_id']     = (int) $resource_id_new;
+  $conflict = bookingsapi_conflict_check($booking);
+  if ( $conflict === BOOKINGSAPI_CONFLICTS_NO ) {
+    $conflict = bookingsapi_booking_save($booking);
+    unset($booking['resource_id_old']);
+    return $conflict;
+  } else {
+    return array(FALSE, $conflict);
+  }
+}
+
+/**
+ * Check record for time conflicts, save if there are none, and then update instances if 
+ * the record has an RRULE.
+ *
+ * @param array $record
+ * @return Array(boolean,mixed) where the boolean indicates wether the booking was a success.
+ *          If the first parameter is true, the second is one of SAVED_NEW or SAVED_UPDATED
+ *          If the first parameter is false, the second is one of FALSE (SQL issue) 
+ *          or BOOKINGSAPI_CONFLICTS_*
+ */
+function bookingsapi_record_save(&$record) {
+//  $record['rrule_until'] = bookingsapi_rrule_until_as_dt($record['rrule']);
+
+  // TODO: lock and unlock tables: this is a critical procedure
+
+  // do conflict check first.
+  // the implementation's validation functions should do the same thing, but instead to get information on
+  // conflicting records, to inform the user
+  $conflicts = bookingsapi_conflict_check($record, FALSE);
+  if ( $conflicts !== BOOKINGSAPI_CONFLICTS_NO ) {
+    if ( $record['type'] == BOOKINGSAPI_BOOKING ) {
+      return array(FALSE,$conflicts);
+    } else {
+      drupal_set_message('Possible conflicts with this availability. '.
+        'Please check the list of bookings.', 'warning');
+    }
+  }
+  if ( $record['type'] == BOOKINGSAPI_BOOKING ) {
+    $op = empty($record['record_id']) ? 'insert' : 'update';
+    bookingsapi_extend('bookingsapi_booking', $op, $record);
+  }
+
+  if (empty($record['record_id'])) {
+    $update = array();
+    $record['created'] = date(DATE_FORMAT_DATETIME);
+  } 
+  else {
+    $update = 'record_id';
+    $record['modified'] = date(DATE_FORMAT_DATETIME);
+  }
+
+  $status = drupal_write_record('bookings_records', $record, $update);
+  _bookingsapi_record_instances_save($record);
+  bookingsapi_extend('bookingsapi_booking_postsave', $op, $record);
+  if ( $status ) {
+    return array(TRUE,$status);
+  } else {
+    return array(FALSE,$status);
+  }
+}
+
+/**
+ * Delete a record and all its instances.
+ *
+ * @param array $record
+ *  Key 'record_id' is used.
+ */
+function bookingsapi_record_delete($record) {
+  if (empty($record['record_id'])) {
+    return;
+  }
+  bookingsapi_extend('bookingsapi_booking', 'delete', $record);
+  $sql = 'DELETE FROM {bookings_records}, {bookings_schedules} USING {bookings_records}, {bookings_schedules}
+          WHERE {bookings_records}.record_id = %d AND {bookings_schedules}.record_id = {bookings_records}.record_id';
+  db_query($sql, $record['record_id']);
+}
+
+/**
+ * Delete an instance of a record, and update the RRULE or delete the parent record if necessary.
+ *
+ * @param array $instance
+ *  An array of the instance to be deleted.
+ */
+function bookingsapi_instance_delete($instance) {
+  if (empty($instance['instance_id'])) {
+    return;
+  }
+  // TODO: this entire process needs table locks too
+  // get the complete instance row, if necessary
+  if (empty($instance['record_id'])) {
+    $instance = bookingsapi_instance_load($instance['instance_id']);
+  }
+  // get the record for the instance
+  $parent = bookingsapi_record_load($instance['record_id']);
+  if (!empty($record['rrule'])) {
+    // this is one instance of many; update the parent's EXDATE to reflect the deletion
+    $rrule = explode("\n", $parent['rrule']);
+    $exception = substr($instance['start'], 0, 11) .'00:00:00'; // reset time according to RFC spec
+    $exception = date_convert($exception, DATE_DATETIME, DATE_ICAL);
+    if (array_key_exists(1, $rrule)) {
+      $rrule[1] .= ", $exception"; // append to existing
+    } 
+    else {
+      $rrule[1] = "EXDATE: $exception"; // create new
+    }
+    $rrule = implode("\n", $rrule);
+    db_query("UPDATE {bookings_records} SET rrule='%s' WHERE record_id=%d LIMIT 1", $rrule, $instance['record_id']);
+  } 
+  else {
+    // deleting the one and only instance of a record, so delete record also
+    db_query('DELETE FROM {bookings_records} WHERE record_id=%d LIMIT 1', $instance['record_id']);
+  }
+  // finally, delete instance itself
+  db_query('DELETE FROM {bookings_schedules} WHERE instance_id=%d LIMIT 1', $instance['instance_id']);
+}
+
+function bookingsapi_instance_load($instance_id, $return_object = FALSE) {
+  $q = db_query('SELECT * FROM {bookings_schedules} WHERE instance_id=%d', $instance_id);
+  if ($return_object) {
+    return db_fetch_object($q);
+  } 
+  else {
+    db_fetch_array($q);
+  }
+}
+
+/**
+ * Return an array of records, where the record_id is the key and the record name is the value.
+ *
+ * @return array
+ */
+function bookingsapi_record_minimal_list() {
+  $ret = array();
+  $sql = 'SELECT name, record_id FROM {bookings_records}';
+  $q = db_query($sql);
+  while($res = db_fetch_object($q)) {
+    $res[$res->record_id] = $res->name;
+  }
+  return $ret;
+}
+
+/**
+ * Load a booking according to its ID. Synonym for bookingsapi_record_load().
+ *
+ * @param int $record_id
+ * @param bool $return_object
+ * @see bookingsapi_record_load()
+ */
+function bookingsapi_booking_load($record_id, $return_object = FALSE) {
+  return bookingsapi_record_load($record_id, $return_object);
+}
+
+/**
+ * Load an availability according to its ID. Synonym for bookingsapi_record_load().
+ *
+ * @param int $record_id
+ * @param bool $return_object
+ * @see bookingsapi_record_load()
+ */
+function bookingsapi_availability_load($record_id, $return_object = FALSE) {
+  return bookingsapi_record_load($record_id, $return_object);
+}
+
+/**
+ * Load a record according to its ID.
+ *
+ * @param int $record_id
+ * @param bool $return_object
+ * @return
+ *  array if found and $return_object is false
+ *  object if found and $return_object is true
+ */
+function bookingsapi_record_load($record_id, $return_object = FALSE) {
+  $sql = 'SELECT * FROM {bookings_records} WHERE {bookings_records}.record_id=%d';
+  $q = db_query(db_rewrite_sql($sql, 'bookings_records', 'record_id'), $record_id);
+  if ($return_object) {
+    return db_fetch_object($q);
+  } 
+  else {
+    return db_fetch_array($q);
+  }
+}
+
+/**
+ * Save availability to database, passing the it to hooked modules for changes first.
+ *
+ * @param array $avail
+ * @return boolean false if fail, or SAVED_NEW, or SAVED_UPDATED
+ */
+function bookingsapi_availability_save(&$avail, $return_object = FALSE) {
+  $op = empty($avail['record_id']) ? 'update' : 'insert';
+  bookingsapi_extend('bookingsapi_booking', $op, $avail);
+  $status = bookingsapi_record_save($avail);
+  if (!$return_object) {
+    $avail = (array) $avail;
+  }
+  if ( $status[0] ) {
+    return $status[1];
+  } else {
+    return FALSE;
+  }
+}
+
+function bookingsapi_availability_delete($avail) {
+  // if this is an available record, and default availability is unavailable rigid,
+  // cancel all bookings that are dependent on this availability
+  // TODO: completely untested!
+  $availcode = bookingsapi_numeric_record_types($avail['type']);
+  $res = bookingsapi_resource_load($avail['resource_id']);
+  if ( bookingsapi_numeric_record_types($res->field_ba_defaultavailability[0]['value']) == BOOKINGSAPI_UNAVAILABLE &&
+        $availcode == BOOKINGSAPI_AVAILABLE ) {
+    bookingsapi_parse_rrule($avail, $exceptions, $intervals);
+    
+    // for now, all child resources are affected by this availability removal
+    $resources = bookingsapi_resource_get_childs($record['resource_id']);
+    array_unshift($resources, $record['resource_id']);
+    $resources = implode(',', $resources);
+
+    $where = "{bookings_schedules}.resource_id IN ($resources) $exclude_self AND {bookings_schedules}.type = " . BOOKINGSAPI_BOOKING;
+
+    $dependents = bookingsapi_timeframe_survey('record_id', $intervals, $where);
+    $dependents = implode(',', $dependents);
+
+    // cancel
+    $sql = "UPDATE {bookings_records}, {bookings_schedules}
+            SET {bookings_records}.status = 3, {bookings_schedules}.status = 3
+            WHERE {bookings_records}.record_id = {bookings_schedules}.record_id AND
+              {bookings_records}.record_id IN ($dependents)";
+    db_query($sql);
+  }
+
+
+  // proceed to delete the availability record and all its instances
+  bookingsapi_record_delete($avail);
+}
+
+/**
+ * Lists all bookings (of the given type) for the given resource ordered by their
+ * start time.
+ *
+ * Calls hook_bookingsapi_booking with op=list, the bookings found and a config
+ * containing the parameters of the function call as named array.
+ *
+ * @param int $resource_id
+ *  ID of the resource to select
+ * @param int $booking_type
+ *  Set to 0 to ignore, otherwise one of BOOKINGSAPI_BOOKING,
+ *  BOOKINGSAPI_AVAILABLE, BOOKINGSAPI_UNAVAILABLE.
+ * @param mixed $status
+ *  List of status of the bookings to list, single status or NULL to ignore.
+ * @param datetime $start
+ *  If set return bookings with start >= $start (unless $rev_start_end is TRUE).
+ * @param datetime $end 
+ *  If set return bookings with end <= $end (unless $rev_start_end is TRUE).
+ * @param boolean $rev_start_end
+ *  If set both start and end must be set, returns any booking overlapping with the
+ *  given timeframe (ends or starts between start and end OR spans the complete set)
+ * @param int $ignored_id
+ *  Record ID to ignore.
+ *
+ * @return array
+ *  List of bookings found, keys: start, end, record_id, instance_id, type, status
+ */
+function bookingsapi_booking_list( $resource_id, $booking_type = 0, 
+                    $status = NULL, $start = NULL, $end = NULL, 
+                    $rev_start_end = FALSE, $ignored_id = NULL ) {
+  $sql = "SELECT instance_id, record_id, type, start, end, status FROM ".
+          "{bookings_schedules} WHERE resource_id = $resource_id ";
+  if ( is_int($booking_type) && $booking_type > 0 ) {
+    $sql .= " AND type = $booking_type";
+  }
+  if ( is_array($status) && count($status) > 0 ) {
+    $sql .= " AND status IN (".implode(',',$status).")";
+  } else if ( is_numeric($status) ) {
+    $sql .= " AND status = " . (int) $status;
+  }
+  if ( $rev_start_end ) {
+    if ( is_string($start) && is_string($end) ) {
+//      $sql .= " AND ( (end >= '$start' AND end <= '$end') OR (start >= '$start' AND start <= '$end') OR ( start <= '$start' AND end >= '$end' ) )";
+        $sql .= " AND start < '$end' AND end > '$start' ";
+    } else if ( is_string($start) ) {
+      watchdog("Bookings API", "bookingsapi_booking_list called with rev_start_end but without end");
+      $sql .= " AND end > '$start'";
+    } else if ( is_string($end) ) {
+      watchdog("Bookings API", "bookingsapi_booking_list called with rev_start_end but without start");
+      $sql .= " AND start < '$end'";
+    } else {
+      watchdog("Bookings API", "bookingsapi_booking_list called with rev_start_end but without start or end.<br><pre>".print_r(debug_backtrace(),true)."</pre>");
+    }
+  } else {
+    if ( is_string($start) ) {
+      $sql .= " AND start >= '$start'";
+    }
+    if ( is_string($end) ) {
+      $sql .= " AND end <= '$end'";
+    }
+  }
+  if ( is_numeric($ignored_id) ) {
+    $sql .= " AND record_id != ".(int) $ignored_id;
+  }
+  $sql .= " ORDER BY start ASC";
+
+  $q = db_query($sql);
+
+  $res = array();
+
+  while ( $row = db_fetch_array($q) ) {
+    $res[] = $row;
+  }
+  $config = array(
+      'resource_id'  => $resource_id,
+      'booking_type' => $booking_type,
+      'status'       => $status,
+      'start'        => $start,
+      'end'          => $end,
+      'rev_start_end'=> $rev_start_end,
+      ); 
+  bookingsapi_extend("bookingsapi_booking","list",$res,$config);
+
+  return $res;
+}
+
+/**
+ * Per Default lists all bookings exactly as bookingsapi_booking_list while
+ * including the bookings of the recursive parent-resources (but not our 
+ * cousins) and the bookings of the children-resources (recursive).
+ *
+ * With $useChilden and $useParent both FALSE this is identical to the
+ * non-recursive variant. Calls bookingsapi_booking_list for each resource 
+ * handled.
+ *
+ * @param int $resource_id
+ *  ID of the resource to select
+ * @param int $booking_type
+ *  Set to 0 to ignore, otherwise one of BOOKINGSAPI_BOOKING,
+ *  BOOKINGSAPI_AVAILABLE, BOOKINGSAPI_UNAVAILABLE.
+ * @param mixed $status
+ *  List of status of the bookings to list, single status or NULL to ignore.
+ * @param datetime $start
+ *  If set return bookings with start >= $start (unless $rev_start_end is TRUE).
+ * @param datetime $end 
+ *  If set return bookings with end <= $end (unless $rev_start_end is TRUE).
+ * @param boolean $use_parents
+ *  Whether to include the bookings of the parent-resources.
+ * @param boolean $use_children
+ *  Whether to include the bookings of the children-resources.
+ * @param boolean $rev_start_end
+ *  If set all bookings with ( end > $start OR start < $end ) will be returned.
+ * @param int $ignored_id
+ *  Record ID to ignore.
+ *
+ * @return array
+ *  List of bookings found, keys: start, end, record_id, instance_id, type, status
+ */
+function bookingsapi_booking_recursive_list( $resource_id, $booking_type = 0,
+                    $status = NULL, $start = NULL, $end = NULL, 
+                    $use_parents = TRUE, $use_children = TRUE, 
+                    $rev_start_end = FALSE, $ignored_id = NULL ) {
+  $resource = bookingsapi_resource_load($resource_id);
+  if ( $resource === FALSE ) {
+    return array();
+  }
+  $res = bookingsapi_booking_list($resource_id, $booking_type, $status, 
+      $start, $end, $rev_start_end, $ignored_id);
+
+  if ( $use_parents && $resource->field_ba_parent[0]['nid'] > 0 ) {
+    $res = array_merge($res, bookingsapi_booking_recursive_list( 
+        $resource->field_ba_parent[0]['nid'], $booking_type, $status, 
+        $start, $end, TRUE, FALSE, $rev_start_end, $ignored_id) );
+  }
+  if ( $use_children ) {
+    $children = bookingsapi_resource_get_childs($resource_id);
+    foreach ( $children as $id ) {
+      $res = array_merge($res, bookingsapi_booking_recursive_list( $id,
+          $booking_type, $status, $start, $end, FALSE, TRUE, $rev_start_end,
+          $ignored_id) );
+    }
+  }
+  uasort($res, '_bookingsapi_booking_cmp');
+  return $res;
+}
+
+/**
+ * Compares the two bookings $a and $b with their respective start-time.
+ * 
+ * @param array $a
+ *   MUST contain the key 'start'
+ * @param array $b
+ *   MUST contain the key 'start'
+ * @return int
+ *   Returns -1 if $a['start'] < $b['start'], 0 if they are equal, 1 otherwise.
+ */
+function _bookingsapi_booking_cmp($a, $b) {
+  $da = date_convert($a['start'], DATE_DATETIME, DATE_UNIX);
+  $db = date_convert($b['start'], DATE_DATETIME, DATE_UNIX);
+
+  if ( $da == $db ) {
+    return 0;
+  }
+  return ( $a < $b ) ? -1 : 1;
+}
+
+/**
+ * Save bookable resource to database, passing the resource to hooked modules 
+ *  for changes first.
+ *
+ * Calls hook_bookingsapi_resource with the node-object as data, 'insert'
+ * or 'update' as operation  and no config prior to submitting and saving the 
+ * resource as node.
+ * @param mixed $resource
+ *  resource to save. May either be a node-object or an array containing (at least):
+ *    * title (or name)
+ *    * description (or body)
+ * @return SAVED_NEW, or SAVED_UPDATED
+ */
+function bookingsapi_resource_save(&$resource) {
+  $node;
+  $returnVal;
+
+  if ( is_object($resource) ) {
+    $node = $resource;
+    if ( isset($node->nid) ) {
+      $node->changed = date_convert(date_now(),DATE_OBJECT,DATE_UNIX);
+      $returnVal = SAVED_UPDATED;
+    } else {
+      $node->created = date_convert(date_now(),DATE_OBJECT,DATE_UNIX);
+      $node->changed = $node->created;
+      $returnVal = SAVED_NEW;
+    }
+  } else {
+    $node = new StdClass();
+    $node->type  = BOOKINGSAPI_RESOURCE_TYPE;
+
+    node_object_prepare($node);
+
+    if ( isset($resource['resource_id']) && ! isset($resource['nid']) ) {
+      $resource['nid'] = $resource['resource_id'];
+    } 
+    if ( isset($resource['nid']) ) {
+      $node = node_load($resource['nid']);
+      $node->changed = date_convert(date_now(),DATE_OBJECT,DATE_UNIX);
+      $returnVal = SAVED_UPDATED;
+    } else {
+      $node->created = date_convert(date_now(),DATE_OBJECT,DATE_UNIX);
+      $node->changed = $node->created;
+      $returnVal = SAVED_NEW;
+    }
+
+    $node->title = array_key_exists('title',$resource) ? $resource['title'] : $resource['name'];
+    $node->body  = array_key_exists('body',$resource) ? $resource['body'] : $resource['description'];
+    // Node Teasers are not changed automatically ... 
+    $node->teaser = node_teaser($node->body);
+    $node->status = $resource['status'] == 1 || ! $resource['disabled'] ? 1 : 0 ;
+
+    if ( $returnVal == SAVED_NEW ) {
+      // Changing uid, language or format like this would be evil.
+      // So we don't
+      $node->uid = isset($resource['uid']) ? (int) $resource['uid'] : variable_get('bookingsapi_resource_owner',FALSE) ? variable_get('bookingsapi_resource_owner',FALSE) : $GLOBALS['user']->uid;
+      $node->language = isset($resource['language']) ? $resource['language'] : language_default('language');
+      $node->format = BOOKINGSAPI_RESOURCE_FORMAT;
+    }
+    if ( ! array_key_exists('taxonomy',$resource) && isset($resource['grouping']) ) {
+      $resource['taxonomy'] = $resource['grouping'];
+    }
+    $node->taxonomy = $resource['taxonomy']; 
+    if ( isset($resource['parent']) ) {
+      $node->field_ba_parent[0]['nid'] = (int) $resource['parent'];
+    } else {
+      $node->field_ba_parent[0]['nid'] = 0;
+    }
+    if ( isset($resource['location']) ) {
+      $node->field_ba_location[0]['value'] = $resource['location'];
+    } else {
+      $node->field_ba_location[0]['value'] = '';
+    }
+
+    if ( isset($resource['default_availability']) && in_array($resource['default_availability'], array(BOOKINGSAPI_UNAVAILABLE,BOOKINGSAPI_AVAILABLE))) {
+      $node->field_ba_defaultavailability[0]['value'] = $resource['default_availability'];
+    } else {
+      $node->field_ba_defaultavailability[0]['value'] = BOOKINGSAPI_AVAILABLE;
+    }
+  }
+
+  if ( $returnVal == SAVED_UPDATED ) {
+    $op = 'update';
+  } else {
+    $op = 'insert';
+  }
+  bookingsapi_extend('bookingsapi_resource',$op,$node,$resource); 
+  $resource = $node;
+
+  if ( $returnVal == SAVED_NEW ) {
+    $node = node_submit($node);
+  }
+  node_save($node);
+  bookingsapi_extend('bookingsapi_resource_postsave',$op,$node,$resource); 
+  
+  return $returnVal;
+}
+
+
+/**
+ * Return an array of resources, where the resource_id is the key and the resources name is the value.
+ *
+ * Calls hook_bookingsapi_resource (op: list) with the original minimal list as data and 
+ * 'type'=>'minimal' as config. Additionally 'requested' is given with the list of requested resource_ids.
+ * @param array $resource_ids
+ *  List of resource_ids to fetch the title for.
+ * @return array
+ *  An array of resources where the resource-id is the key and the resource-title the value.
+ */
+function bookingsapi_resource_entitle( $resource_ids ) {
+  if ( is_array($resource_ids) ) {
+    foreach ( $resource_ids as $key => $value ) {
+      $resource_ids[$key] = (int) $value;
+    }
+    $sql = 'SELECT title, nid FROM {node} WHERE type = "'.BOOKINGSAPI_RESOURCE_TYPE.'" ';
+    $sql .= ' AND nid IN ('.join(',',$resource_ids).')';
+    $r = db_query($sql);
+    while ( $row = db_fetch_array($r) ) {
+      $res[$row['nid']] = $row['title'];
+    }
+    $config = array('type'=>'minimal','requested'=>$resource_ids);
+    bookingsapi_extend('bookingsapi_resource','list',$res,$config);
+    return $res;
+  } else {
+    return bookingsapi_resource_minimal_list();
+  }
+}
+
+/**
+ * Return an array of resources, where the resource_id is the key and the resources name is the value.
+ *
+ * Calls hook_bookingsapi_resource (op: list) with the original minimal list as data and 
+ * 'type'=>'minimal' as config.
+ * @param boolean $onlyEnabled
+ *  If set to true only enabled resources will be returned.
+ * @return array
+ *  An array of resources where the resource-id is the key and the resource-title the value.
+ */
+function bookingsapi_resource_minimal_list( $onlyEnabled=FALSE ) {
+  if ( $onlyEnabled ) {
+    $sql = 'SELECT title, nid FROM {node} WHERE type = "'.BOOKINGSAPI_RESOURCE_TYPE.'" AND status = 1';
+  } else {
+    $sql = 'SELECT title, nid FROM {node} WHERE type = "'.BOOKINGSAPI_RESOURCE_TYPE.'"';
+  }
+  $q   = db_query($sql);
+  $res = array();
+
+  while ( $result = db_fetch_array($q) ) {
+    $res[$result['nid']] = $result['title'];
+  }
+  $config = array('type'=>'minimal','bookable'=>$onlyEnabled);
+  bookingsapi_extend('bookingsapi_resource','list',$res,$config);
+  return $res;
+}
+
+/**
+ * Load a resource according to its ID.
+ *
+ * Calls hook_bookingsapi_resource (op: load) with the node found and the config 'cached'=>TRUE
+ *
+ * @param int $resource_id
+ * @return object
+ *   node-object representing this resource or FALSE if no node could be found.
+ */
+function bookingsapi_resource_load($resource_id) {
+  $node = node_load($resource_id);
+  $config = array('cached'=>TRUE);
+  bookingsapi_extend('bookingsapi_resource','load',$node,$config);
+  if ( $node->type != BOOKINGSAPI_RESOURCE_TYPE && ! isset($node->FORCE_TYPE_OVERRIDE) ) {
+    return FALSE;
+  }
+  if ( isset($node->FORCE_TYPE_OVERRIDE) ) {
+    unset($node->FORCE_TYPE_OVERRIDE);
+  }
+
+  return $node;
+}
+
+/**
+ * Load a list of resources with the given IDs. Uses uncached node_load.
+ *
+ * Calls hook_bookingsapi_resource (op: load) with the node(s) found and the config 'cached'=>FALSE
+ * @param mixed $resource_ids
+ *   Either an array of resource_ids or a single resource_id for uncached resource loading.
+ * @return array
+ *   An array of resources (resourceID->resource).
+ */
+function bookingsapi_resource_mass_load( $resource_ids ) {
+  $retArr;
+  if ( is_array($resource_ids) ) {
+    $retArr = array();
+    foreach ( $resource_ids AS $resourceID ) {
+      $retArr[$resourceID] = node_load($resourceID,NULL,TRUE);
+    }
+  } else {
+    $retArr[$resource_ids] = node_load($resource_ids,NULL,TRUE);
+  }
+  $config = array('cached'=>FALSE);
+  bookingsapi_extend('bookingsapi_resource','load',$retArr,$config);
+  foreach ( $retArr as $id => $resource ) {
+    if ( $resource->type != BOOKINGSAPI_RESOURCE_TYPE && ! isset($resource->FORCE_TYPE_OVERRIDE) ) {
+      unset($retArr[$id]);
+    }
+    if ( isset($resource->FORCE_TYPE_OVERRIDE) ) {
+      unset($resource->FORCE_TYPE_OVERRIDE);
+    }
+  }
+
+  return $retArr;
+}
+
+/**
+ * Return a tree of resources.
+ *
+ * Returns an array containing a minimal list of elements without parent resource:
+ * array( resource_id => array( resource_id=>resource_name, continued with the list of childs), ..)
+ *
+ * Calls hook_bookingsapi_resource (op: list, config: type=>tree) 
+ *
+ * @param bool $bookable
+ *  Show only bookable resources (status = 1)
+ * @return array
+ *  resources
+ */
+function bookingsapi_resource_tree( $bookable = FALSE ) {
+
+}
+
+/**
+ * Return an array of resources.
+ *
+ * Calls hook_bookingsapi_resource (op: list, config: type=>full and limit,
+ * element,sort as given) before calling bookingsapi_resource_mass_load with 
+ * the list of nids found.
+ *
+ * @param int $limit
+ *  max number of elements to return, set to 0 to ignore.
+ * @param bool $return_object
+ *  if TRUE, keep drupal_write_record()'s behaviour of converting the reference to an object
+ * @param string $sort
+ *  appended to the end of the query, intended for tablesort_sql().
+ * @param int $element
+ *  identifying number for pager
+ * @param bool $bookable
+ *  Show only bookable resources (status = 1)
+ * @return array
+ *  resources
+ */
+function bookingsapi_resource_list($limit = 10, $sort = '', $element = 0, $bookable = FALSE) {
+  $sql = "SELECT nid FROM {node} WHERE type = '".BOOKINGSAPI_RESOURCE_TYPE."' ";
+  if ( $bookable ) {
+    $sql .= " WHERE status > 0 ";
+  }
+  $sql .= $sort;
+  if ( $limit > 0 ) {
+    $q = pager_query($sql, $limit, $element);
+  } else {
+    $q = db_query($sql);
+  }
+  $res = array();
+  $rows = array();
+
+  while ( $result = db_fetch_array($q) ) {
+    $res[] = $result['nid'];
+  }
+
+  $config = array('type'=>'full','limit'=>$limit,'element'=>$element,'sort'=>$sort,'bookable'=>$bookable);
+  bookingsapi_extend('bookingsapi_resource','list',$res,$config);
+
+  return bookingsapi_resource_mass_load( $res );
+}
+
+/**
+ * Delete a bookable resource and all booking records referring to it.
+ *
+ * @param mixed $resource
+ *  Either a node-object or a single node id
+ */
+function bookingsapi_resource_delete($resource) {
+  if ( ! is_object($resource) ) {
+    $resource = node_load($resource);
+  }
+  bookingsapi_extend('bookingsapi_resource', 'delete', $resource);
+  $q = db_query('SELECT record_id FROM {bookings_records} WHERE resource_id = %d', $resource->nid);
+  while ( $row = db_fetch_array($q) ) {
+    bookingsapi_record_delete($row['record_id']);
+  }
+  node_delete($resource->nid);
+}
+
+/**
+ * Returns all childs of the given resource.
+ *
+ * Calls hook_bookingsapi_resource (op: list, config: type=>minimal, parent=>$parentID).
+ * @param int $parentID 
+ *  Resource-ID of the parent resource.
+ * @return array 
+ *  Resource-IDs of the child resources.
+ */
+function bookingsapi_resource_get_childs( $parentID ) {
+  $cck = "content_type_" . BOOKINGSAPI_RESOURCE_TYPE;
+
+  $sql = "SELECT n.nid FROM {node} as n " .
+           "LEFT JOIN {".$cck."} as c ON n.vid = c.vid " .
+           "WHERE n.type = '".BOOKINGSAPI_RESOURCE_TYPE."' AND c.field_ba_parent_nid = %d";
+  $q = db_query($sql,$parentID);
+
+  $res = array();
+
+  while ( $result = db_fetch_array($q) ) {
+    $res[] = $result['nid'];
+  }
+
+  $config = array('type'=>'minimal','parent'=>$parentID);
+  bookingsapi_extend('bookingsapi_resource','list',$res,$config);
+
+  return $res;
+}
+
+/**
+ * Returns all children, grandchildren, etc of the given resource.
+ *
+ * Calls hook_bookingsapi_resource (op: list, config: type=>minimal, parent=>$parentID) for each resource tested.
+ * @param int $parentID 
+ *  Resource-ID of the parent resource.
+ * @return array 
+ *  Resource-IDs of the *child resources.
+ */
+function bookingsapi_resource_get_nchilds( $parentID ) {
+  $nres = bookingsapi_resource_get_childs( $parentID );
+  $res = array();
+  foreach ( $nres as $id ) {
+    $res[] = $id;
+    $res2 = bookingsapi_resource_get_nchilds($id);
+    if ( is_array($res2) ) {
+      $res = array_merge($res, $res2);
+    }
+  }
+  return $res;
+}
+
+/**
+ * Run the bookings API hook, returns specified things.
+ *
+ * Taken from http://www.civicactions.com/blog/writing_extensible_drupal_modules_part_1
+ *
+ * @param $hook_name is the name of the hook to call
+ * @param $op is the action that a module should run
+ * @param $data is bookings API data
+ * @param $config is configuration data
+ * @return an array of data
+*/
+function bookingsapi_extend($hook_name, $op = NULL, &$data = NULL, &$config = NULL) {
+  $items = array();
+  foreach (module_implements($hook_name) as $module) {
+    if ($new = call_user_func_array($module . '_' . $hook_name, array($op, &$data, &$config))) {
+      $items = array_merge($items, $new);
+    }
+  }
+  // make sure we return an array
+  if (! is_array($items)) { 
+    return array(); 
+  }
+  return $items;
+}
+
+/**
+ * Implementation of hook_simpletest().
+ */
+function bookingsapi_simpletest() {
+  $dir = drupal_get_path('module', 'bookingsapi') .'/tests';
+  $tests = file_scan_directory($dir, '\.test$');
+  return array_keys($tests);
+}
+
+/**
+ * Implementation of hook_views_api().
+ */
+function bookingsapi_views_api() {
+  return array(
+    'api' => '2.0',
+  );
+}
+
+/**
+ * Filters for resources fulfilling the given set of requirements.
+ * Each element must be a SINGLE SQL-Where-Clause.
+ * The tables node (named n), content_type_bookings_api_resources (named cck)
+ * and node_revisions (named nr) may be used.
+ *
+ * Example:
+ * array( "field_ba_location_value LIKE '%home%'", "field_ba_parent_nid == 4" )
+ * @param array filter
+ *  List of SQL WHERE-clauses to apply
+ * @return Array of resources (id->title) found
+ */
+function bookingsapi_filter_resources( $filter ) {
+  if ( ! is_array($filter) ) {
+    return bookingsapi_resource_minimal_list();
+  } else {
+    $table = "content_type_" . BOOKINGSAPI_RESOURCE_TYPE;
+    $sql = "SELECT n.nid, n.title FROM {node} as n, {".$table."} as cck, {node_revisions} as nr WHERE ";
+    for ( $i=0; $i<count($filter); $i++ ) {
+      if ( $i > 0 ) {
+        $sql .= " AND ";
+      } 
+      $sql .= $filter[$i];
+    }
+    $q = db_query($sql);
+    $res = array();
+    while ( $row = db_fetch_array($q) ) {
+      $res[$row['nid']] = $row['title'];
+    }
+    return $res;
+  }
+}
+
+/**
+ * Implementation of hook_views_handlers().
+ */
+function bookingsapi_views_handlers() {
+  return array(
+    'info' => array(
+      'path' => drupal_get_path('module', 'bookingsapi') .'/handlers',
+    ),
+    'handlers' => array(
+      'views_handler_field_datetime' => array(
+        'parent' => 'views_handler_field_date',
+        'file' => 'views_handler_field_date.inc',
+      ),
+      'views_handler_filter_datetime' => array(
+        'parent' => 'views_handler_filter_date',
+        'file' => 'views_handler_filter_date.inc',
+      ),
+      'views_handler_filter_bookings_resource_disabled' => array(
+        'parent' => 'views_handler_filter_boolean_operator',
+        'file' => 'views_handler_filter_boolean_operator.inc',
+      ),
+      'views_handler_filter_bookings_record_types' => array(
+        'parent' => 'views_handler_filter_in_operator',
+        'file' => 'views_handler_filter_in_operator.inc',
+      ),
+      'views_handler_filter_bookings_record_statuses' => array(
+        'parent' => 'views_handler_filter_in_operator',
+        'file' => 'views_handler_filter_in_operator.inc',
+      ),
+      'views_handler_filter_bookings_resource_id' => array(
+        'parent' => 'views_handler_filter_in_operator',
+        'file' => 'views_handler_filter_in_operator.inc',
+      ),
+      'views_handler_filter_bookings_record_id' => array(
+        'parent' => 'views_handler_filter_in_operator',
+        'file' => 'views_handler_filter_in_operator.inc',
+      ),
+      'views_handler_field_bookings_resource_disabled' => array(
+        'parent' => 'views_handler_field',
+        'file' => 'views_handler_field.inc',
+      ),
+      'views_handler_field_bookings_record_types' => array(
+        'parent' => 'views_handler_field',
+        'file' => 'views_handler_field.inc',
+      ),
+      'views_handler_field_bookings_default_availability' => array(
+        'parent' => 'views_handler_field',
+        'file' => 'views_handler_field.inc',
+      ),
+      'views_handler_field_bookings_rrule' => array(
+        'parent' => 'views_handler_field',
+        'file' => 'views_handler_field.inc',
+      ),
+      'views_handler_field_bookings_record_statuses' => array(
+        'parent' => 'views_handler_field',
+        'file' => 'views_handler_field.inc',
+      ),
+    ),
+  );
+}
+
+/** 
+ * Returns a list of bookingsapi variables.
+ *
+ * @returns array array( 'name' => ( 'type' => int/bool/etc, 'description' => text ) )
+ */
+function bookingsapi_variables($langcode = NULL) {
+  if ( is_null($langcode) ) {
+    global $language;
+    $langcode = $language->language;
+  }
+  $variables = array(
+      'bookingsapi_time_before_booking' => array(
+          'title'       => t('Minimal time before each booking (min)', array(), $langcode),
+          'description' => t('Min. time between the time the booking is made and the start of the booked time', array(), $langcode),
+          'type'        => 'int',
+          'value' => variable_get('bookingsapi_time_before_booking', 0),
+        ),
+      'bookingsapi_using_sql_ts_triggers' => array(
+          'title'       => t('Tables have triggers defined for updating the \'created\' and \'modified\' timestamps.', array(), $langcode),
+          'description' => t('If checked, the updating of these fields will be delegated entirely to the MySQL triggers.', array(), $langcode),
+          'type'        => 'bool',
+          'value' => variable_get('bookingsapi_using_sql_ts_triggers', 0),
+        ),
+      'bookingsapi_resource_tree' => array(
+          'title'       => t('Resources are shown as hierarchical tree in the select-field', array(), $langcode),
+          'type'        => 'bool',
+          'value' => variable_get('bookingsapi_resource_tree', FALSE),
+        ),
+      'bookingsapi_unconfirmed_conflicts' => array(
+          'type'        => 'bool',
+          'title'       => t('Whether unconfirmed bookings conflict with new bookings - NOT Recommanded.', array(), $langcode),
+          'description' => t('If checked, unconfirmed bookings conflict with new Bookings. Please regard that this allows spammers to disallow your booking system by adding unconfirmed bookings in masses. Use only in controlled internal areas!', array(), $langcode),
+          'value' => variable_get('bookingsapi_unconfirmed_conflicts',FALSE),
+        ),
+      'bookingsapi_time_granularity' => array(
+          'title'       => t('Time granularity', array(), $langcode),
+          'description' => t('The increments for datetime selectors, in minutes.', array(), $langcode),
+          'type'        => 'int',
+          'value' => variable_get('bookingsapi_time_granularity', 10),
+        ),
+      'bookingsapi_potential_conflicts' => array(
+          'title'       => t('Whether potential conflicts (not-strictly unavailable resource, pending booking) conflict with new bookings - NOT Recommanded.', array(), $langcode),
+          'description' => t('If checked, potential conflicts are regarded as conflicts. Potential conflicts are every booking on a unavailable resource (normally limited to strictly unavailable) or conflicts with pending bookings.', array(), $langcode),
+          'type'               => 'bool',
+          'value' => variable_get('bookingsapi_potential_conflicts',FALSE),
+        ),
+      'bookingsapi_year_range' => array(
+          'title'       => t('Maximal range for new bookings (e.g. last year to be shown in bookings form)', array(), $langcode),
+          'description' => t('The maximal range of years to be displayed for new bookings. Use the format 0:+[number of years from now]. 0:+1 will be this year and the next one.', array(), $langcode),
+          'type'        => 'string',
+          'value'       => variable_get('bookingsapi_year_range','0:+1'),
+        ),
+    );
+  bookingsapi_extend('bookingsapi_variables', 'list', $variables, $langcode);
+
+  return $variables;
+}

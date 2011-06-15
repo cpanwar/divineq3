@@ -1,0 +1,14 @@
+name = Bookings API Direct Booking Button
+description = "When displaying a resource as a node this module adds a button to directly book this resource."
+package = "Bookings"
+
+core = 6.x
+
+dependencies[] = bookingsapi
+
+; Information added by drupal.org packaging script on 2011-02-26
+version = "6.x-3.0-alpha2"
+core = "6.x"
+project = "bookingsapi"
+datestamp = "1298742967"
+

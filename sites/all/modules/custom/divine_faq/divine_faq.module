@@ -243,6 +243,7 @@ function display_faqs_page()
      
     $rows = array();
     $flag=0;
+    $questionLink = '<div style="float:right"><b>'.l(t('Ask a Question'),'divine-faq/question').'</b></div>';
 
     while ($links = db_fetch_object($query_result)) {
       $flag=1;
@@ -261,9 +262,12 @@ function display_faqs_page()
       $rows[]=array(
                     array('data'=>'<b>No questions found</b>','colspan'=>6,'style'=>'text-align:center')
 		   );
-      return theme_table($header, $rows);
+      return $questionLink.theme_table($header, $rows);
     }
-    return theme('table', $header, $rows).theme('pager', NULL, $nodes_per_page,0);
+
+    
+
+    return $questionLink.theme('table', $header, $rows).theme('pager', NULL, $nodes_per_page,0);
 }
 
 
@@ -421,7 +425,8 @@ function display_faq_details($qid)
       $icon='';
       $role_name=strtolower(trim($links->role_name));
       if($role_name=='expert'){
-        $icon='<img src="'.base_path().path_to_theme() .'/images/expert.png" alt="Expert" border="0" style="margin-bottom:-3px;width:15px; height:15px;" />&nbsp;';
+        $icon='<img src="'.$base_url.'/sites/default/expert.png" alt="Expert" border="0" style="margin-bottom:-3px;width:15px; height:15px;" />&nbsp;';
+
       }
       $rows[] =array( 
 		     array('data'=> $icon.substr($links->answered_by,0,100)),

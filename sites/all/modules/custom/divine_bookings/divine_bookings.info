@@ -1,0 +1,6 @@
+name = Divine Booking
+description = "Custom module for handling divine wellness booking system"
+package = "Divine Wellness"
+core = 6.x
+dependencies[] = bookingsapi
+dependencies[] = publicbookings

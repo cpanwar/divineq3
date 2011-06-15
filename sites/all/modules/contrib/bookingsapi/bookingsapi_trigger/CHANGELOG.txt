@@ -1,0 +1,11 @@
+
+by tirsales: Reintegrated resources with node-changes 
+
+Bookings API 6.x-3.0-alpha1
+-----------------------------
+
+Bookings API 6.x-1.0-alpha3, 2009-06-05
+-----------------------------
+by tirsales: Added PHPDoc
+by tirsales: Added bookingsapi_trigger
+

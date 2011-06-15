@@ -247,7 +247,7 @@ function addToSchedule(){
 	var class_time=$('#class_time option:selected').text();
 	var timezone=$('#timezone option:selected').text();
 
-	var class_details='Guru :'+guruname + '<br/>On <b>' + class_date + '</b> at <b>' + class_time + '</b> in <b>' + timezone + '</b>';
+	var class_details='Teacher :'+guruname + '<br/>On <b>' + class_date + '</b> at <b>' + class_time + '</b> in <b>' + timezone + '</b>';
 
     jQtable.each(function(){
         var $table = $(this);

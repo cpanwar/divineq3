@@ -1,0 +1,7 @@
+<?php
+
+
+function publicbookings_participated_install() {}
+
+function publicbookings_participated_uninstall() {}
+

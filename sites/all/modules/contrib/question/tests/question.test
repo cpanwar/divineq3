@@ -1,0 +1,120 @@
+<?php
+// $Id: question.test,v 1.1.2.2 2010/04/05 14:08:48 tanoshimi Exp $
+
+/**
+ * @file
+ * Simpletests for Question module 6.x.
+ *
+ * Verify Question module functionality.
+ */
+
+/**
+ * Functionality tests for question module.
+ */
+class QuestionTestCase extends DrupalWebTestCase {
+
+  public static function getInfo() {
+    return array(
+      'name' => 'Question',
+      'description' => 'Verify functionality of the question module.',
+      'group' => 'Question',
+    );
+  }
+
+  function setUp() {
+    // Enable the module.
+    parent::setUp('question');
+    // Create a user that has the privilege to ask questions
+    $this->question_user = $this->drupalCreateUser(array('ask questions'));
+    // Create a user that has the privilege to manage questions
+    $this->question_admin_user = $this->drupalCreateUser(array('manage questions'));
+  }
+
+  /**
+   * Verify the functionality of the Question module.
+   */
+  function testQuestionWorkflow() {
+
+    // Check that unauthorised users cannot ask questions
+    $this->drupalGet('question');
+    $this->assertResponse(403, t('Make sure unauthorised users cannot access question form.'));
+
+    // Login as a user with permission to ask questions
+    $this->drupalLogin($this->question_user);
+    // Ask a question
+    $this->drupalPost(
+             'question',
+             array(
+               'questioner' => 'Bobby Test',
+               'question' => 'This is the test question asked by Bobby'
+             ),
+             t('Submit Question')
+           );
+    // Ask another question
+    $this->drupalPost(
+             'question',
+             array(
+               'questioner'  => 'Benny Test',
+               'question' => 'This is another test question, this time asked by Benny'
+             ),
+             t('Submit Question')
+           );
+    // Check that there are two questions in the database
+    $count = db_result(db_query('SELECT COUNT(*) FROM {question_queue}'));
+    $this->assertEqual($count, 2, t("There are two questions in the database."));
+
+    // Check that an unauthorised user cannot access the question queue
+    $this->drupalGet('admin/content/question');
+    $this->assertResponse(403, t('Make sure unauthorised users cannot access question queue.'));
+
+    // Log out question_user
+    $this->drupalLogout($this->question_user);
+
+    // Login as an admin user
+    $this->drupalLogin($this->question_admin_user);
+
+    // Check that the questions appear on the queue page
+    $this->drupalGet('admin/content/question');
+    $this->assertText("Bobby Test", t("Text 'Bobby Test' found in the question queue"));
+    $this->assertText("Benny Test", t("Text 'Benny Test' found in the question queue"));
+
+    // Go to the page to answer the first question
+    $this->drupalGet('node/add/question/1');
+    $this->assertFieldByName('questioner', "Bobby Test", "The questioner field is correctly populated");
+    $this->assertFieldByName('question', "This is the test question asked by Bobby", "The question field is correctly populated");
+
+    // Submit an answer to this question
+    $edit = array(
+      'title' => 'Bobby Test\'s Question',
+      'answer' => 'This is the response to Bobby\'s question',
+      'questioner' => 'Bobby Test',
+      'question' => 'This is the response to Bobby\'s question',
+    );
+    $this->drupalPost('node/add/question/1', $edit, t('Save'));
+
+    // Check that the Question node has been created
+    $this->assertRaw(t('!type %title has been created.', array('!type' => 'Question', '%title' => $edit['title'])), t('Question page created.'));
+
+    // Check that the node exists in the database
+    $node = $this->drupalGetNodeByTitle($edit['title']);
+    $this->assertTrue($node, t('Node found in database.'));
+
+    // Check that the question has been removed from the queue
+    $this->drupalGet('admin/content/question');
+    $this->assertNoText("Bobby Test", t("Text 'Bobby Test' does not appear in the question queue"));
+
+    // Check that the row has been removed from the database
+    $count = db_result(db_query('SELECT COUNT(*) FROM {question_queue}'));
+    $this->assertEqual($count, 1, t("There is one question in the question queue."));
+
+    // Delete the second question
+    $this->drupalPost('admin/content/question/delete/2', array(), t('Delete'));
+
+    // Check that the question has been deleted
+    $this->assertRaw(t('!type deleted.', array('!type' => 'Question')), t('Question deleted.'));
+
+    // Check that the question queue is now empty
+    $count = db_result(db_query('SELECT COUNT(*) FROM {question_queue}'));
+    $this->assertEqual($count, 0, t("The question queue is empty."));
+  }
+}

@@ -1,0 +1,88 @@
+<?php
+
+function bookingsapi_trigger_hook_info() {
+	return array(
+			'bookingsapi_trigger' => array(
+				'bookingsapi_trigger' => array(
+					'status_changed' => array(
+						'runs when' => t('The status of a booking has changed (via an email-confirmation or the admin-menu).'),
+						),
+					'booking_added' => array(
+						'runs when' => t('A new booking has been added.'),
+						),
+					'resource_changed' => array(
+						'runs when' => t('A resource has been changed or a new resource added.'),
+						),
+					'booking_changed' => array(
+						'runs when'  => t('A booking has been changed or a new booking added (any change excluding the email-confirmation)'),
+						),
+					),
+				),
+			);
+}
+
+function bookingsapi_trigger_bookingsapi_trigger($op, $user, $data, $config) {
+	if (!in_array($op, array('status_changed','booking_added','resource_changed'))) {
+		return;
+	}
+	$aids = _trigger_get_hook_aids('bookingsapi_trigger', $op);
+	$context = array(
+		'hook' => 'bookingsapi_trigger',
+		'op'   => $op,
+		'user' => $user,
+    'data' => $data,
+    'config'=> $config,
+	);
+	actions_do(array_keys($aids), $user, $context, $data, $config);
+}
+
+function bookingsapi_trigger_bookingsapi_booking($op, $data, $config = NULL) {
+	if (!in_array($op, array('update','insert','delete'))) {
+		return;
+	}
+	global $user;
+	if ($op=='insert') {
+		module_invoke_all('bookingsapi_trigger','booking_added', $user, $data, $config);
+	}
+	module_invoke_all('bookingsapi_trigger','booking_changed',$user, $data, $config);
+}
+
+function bookingsapi_trigger_bookingsapi_record_status($op, $data, $config = NULL) {
+	global $user;
+	module_invoke_all('bookingsapi_trigger','status_changed',$user, $data, $config);
+}
+
+function bookingsapi_trigger_bookingsapi_resource($op, $data, $config = NULL) {
+	global $user;
+	if (!in_array($op, array('update','insert','delete'))) {
+		return;
+	}
+	module_invoke_all('bookingsapi_trigger','resource_changed',$user, $data, $config);
+}
+
+function bookingsapi_trigger_action_info_alter(&$info) {
+	$actions = array('status_changed', 'booking_added', 'resource_changed', 'booking_changed');
+  foreach ($info as $type => $data) {
+    if (isset($info[$type]['hooks']['application'])) {
+      array_merge($info[$type]['hooks']['bookingsapi_trigger'], $actions);
+    }
+    else {
+      $info[$type]['hooks']['bookingsapi_trigger'] = $actions;
+    }
+  }
+}
+
+/**
+ * Implementation of hook_nodeapi
+ */
+function bookingsapi_trigger_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
+  if ( $node->type == BOOKINGSAPI_RESOURCE_TYPE) {
+      switch ( $op ) {
+          case 'delete':
+          case 'update':
+          case 'insert':
+            global $user;     
+            module_invoke_all('bookingsapi_trigger','resource_changed',$user, $node, $op);                  
+      }
+  }
+}

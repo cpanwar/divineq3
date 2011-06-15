@@ -1,0 +1,14 @@
+
+by tirsales: Fixed a set of 'free cache'-problems occuring on resource change
+by tirsales: Free Cache now reacting properly on "new resource"
+by tirsales: Fixed another set of 'free cache'-problems occuring on updates
+by tirsales: Cache is not checking resource changes ATM (conflict checking)
+by tirsales: Fixed a bug leading after changing the booking_save-spec
+by tirsales: time() -> date_convert(date_now(),DATE_OBJECT,DATE_UNIX)
+by tirsales: Fixed a couple of mini-bugs
+by tirsales: Elementary add/remove availability now working
+by tirsales: Fixed a couple of mini-bugs
+by tirsales: Conflict checking now with a basic implementation
+by tirsales: Added hooks for resource- and record-changes.
+by tirsales: Extracted from Bookings API
+

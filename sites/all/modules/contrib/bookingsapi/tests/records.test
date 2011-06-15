@@ -1,0 +1,216 @@
+<?php
+
+class bookingsAPIRecords extends DrupalTestCase {
+  /**
+   * Metadata
+   */
+  function get_info() {
+    return array(
+      'name'  => t('Bookings and availabilities'),
+      'desc'  => t('CRUD and conflict checking.'),
+      'group' => t('Bookings API module'),
+    );
+  }
+
+  var $res_UNA_R;
+  var $res_UNA_F;
+  var $res_AVA_R;
+  var $res_AVA_F;
+  var $bookingUnfinal;
+  var $bookingFinal;
+  var $bookingFinalRepeat;
+  var $UNA_R_repeat;
+  var $AVA_F_repeat;
+
+  function setUp() {
+    parent::setUp();
+  }
+
+  function testInsertBooking() {
+    // running everything in order, so make this a prep method also
+    $this->res_UNA_R = array(
+        'default_availability' => BOOKINGSAPI_RES_UNA_R
+    );
+    $this->res_UNA_F = array(
+        'default_availability' => BOOKINGSAPI_RES_UNA_F
+    );
+    $this->res_AVA_R = array(
+        'default_availability' => BOOKINGSAPI_RES_AVA_R
+    );
+    $this->res_AVA_F = array(
+        'default_availability' => BOOKINGSAPI_RES_AVA_R
+    );
+    bookingsapi_resource_save($this->res_UNA_R);
+    bookingsapi_resource_save($this->res_UNA_F);
+    bookingsapi_resource_save($this->res_AVA_R);
+    bookingsapi_resource_save($this->res_AVA_F);
+
+    $this->bookingUnfinal = array(
+        'name' => $this->randomName(),
+        'rid' => $this->res_UNA_R,
+        'start' => '2008-01-01 04:00:00',
+        'end' => '2008-01-01 05:00:00',
+        'finalized' => 0,
+    );
+    $this->bookingFinal = array(
+        'rid' => $this->res_AVA_R['rid'],
+        'name' => $this->randomName(),
+        'start' => '2008-01-01 00:00:00',
+        'end' => '2008-01-01 06:00:00',
+        'finalized' => 1,
+    );
+    $this->bookingFinalRepeat = array(
+        'name' => $this->randomName(),
+        'start' => '2008-01-01 07:00:00',
+        'end' => '2008-01-01 07:30:00',
+        'finalized' => 1,
+        'rrule' => 'RRULE:FREQ=DAILY;INTERVAL=3;UNTIL=20080110T000000;WKST=MO',
+        'rrule_until' => '2008-01-10 00:00:00'
+    );
+
+    $insertResult = bookingsapi_booking_save($this->bookingUnfinal);
+    // no availabilities declared + resource that is rigid unavailable by default
+    // should not be allowed
+    $this->assertEqual($insertResult, BOOKINGSAPI_TIME_CONFLICT);
+     // change to default rigid available resource: should now be allowed
+    $this->bookingUnfinal['rid'] = $this->res_AVA_R;
+    $insertResult = bookingsapi_booking_save($this->bookingUnfinal);
+    $this->assertEqual($insertResult, SAVED_NEW);
+    $this->assertNotNull($this->bookingUnfinal['bid']);
+  }
+
+  function testEditBooking() {
+    $this->bookingUnfinal['name'] = $this->randomName();
+    $saveResult = bookingsapi_booking_save($this->bookingUnfinal);
+    $this->assertEqual($saveResult, SAVED_UPDATED);
+  }
+
+  function testLoadBooking() {
+    $booking = bookingsapi_booking_load($this->bookingUnfinal['bid']);
+    $this->assertEqual($booking['name'], $this->bookingUnfinal['name']); // check the previous edit
+  }
+
+  function testDeleteBooking() {
+    bookingsapi_booking_delete($this->bookingUnfinal['bid']);
+    $booking = bookingsapi_booking_load($this->bookingUnfinal['bid']);
+    $this->assertNull($booking);
+  }
+
+  function testInsertAvailability() {
+    $this->AVA_F_repeat = array(
+        'rid' => $this->res_UNA_R['rid'],
+        'name' => $this->randomName(),
+        'type' => BOOKINGSAPI_AVAILABILITY,
+        'start' => '2008-01-01 12:00:00',
+        'end' => '2008-01-01 14:00:00',
+        'finalized' => 0,
+        'priority' => 1,
+        'rrule' => 'RRULE:FREQ=DAILY;INTERVAL=1;UNTIL=20080105T000000;WKST=MO',
+        'rrule_until' => '2008-01-05 00:00:00'
+    );
+    $insertResult = bookingsapi_availability_save($this->AVA_F_repeat);
+    $this->assertEqual($insertResult, SAVED_NEW);
+    $this->assertNotNull($this->AVA_F_repeat['bid']);
+  }
+
+  function testEditAvailability() {
+    $this->AVA_F_repeat['name'] = $this->randomName();
+    $saveResult = bookingsapi_availability_save($this->AVA_F_repeat);
+    $this->assertEqual($saveResult, SAVED_UPDATED);
+  }
+
+  function testLoadAvailability() {
+    $ava = bookingsapi_availability_load($this->AVA_F_repeat['bid']);
+    $this->assertEqual($ava['name'], $this->AVA_F_repeat['name']); // check the previous edit
+  }
+
+  function testDeleteAvailability() {
+    bookingsapi_availability_delete($this->AVA_F_repeat['bid']);
+    $ava = bookingsapi_availability_load($this->AVA_F_repeat['bid']);
+    $this->assertNull($ava);
+  }
+
+  function testPriority() {
+    // restore last delete
+    unset($this->AVA_F_repeat['bid']);
+    bookingsapi_availability_save($this->AVA_F_repeat);
+    $lower = array( // this should have no effect on res_UNA_R's availability between 12-13
+        'rid' => $this->res_UNA_R['rid'],
+        'type' => BOOKINGSAPI_UNAVAILABILITY,
+        'start' => '2008-01-03 11:00:00',
+        'end' => '2008-01-03 13:00:00',
+        'finalized' => 1,
+        'priority' => 0,
+    );
+    $higher = array( // this should override AVA_F_repeat's availability info between 12-13
+        'rid' => $this->res_UNA_R['rid'],
+        'type' => BOOKINGSAPI_UNAVAILABILITY,
+        'start' => '2008-01-04 11:00:00',
+        'end' => '2008-01-04 13:00:00',
+        'finalized' => 1,
+        'priority' => 1,
+    );
+    bookingsapi_availability_save($lower);
+    bookingsapi_availability_save($higher);
+
+    $booking = array(
+        'rid' => $this->res_UNA_R['rid'],
+        'start' => '2008-01-03 12:00:00',
+        'end' => '2008-01-03 13:15:00',
+    );
+    $result = bookingsapi_booking_save($booking);
+    $this->assertEqual($result, SAVED_NEW);
+
+    $booking = array(
+        'rid' => $this->res_UNA_R['rid'],
+        'start' => '2008-01-04 12:00:00',
+        'end' => '2008-01-04 13:15:00',
+    );
+    // this also tests whether availability info whose endpoint falls within the attempted booking's range
+    // is taken into account
+    $result = bookingsapi_booking_save($booking);
+    $this->assertEqual($result, BOOKINGSAPI_TIME_CONFLICT);
+  }
+
+  function testUnconflictingBookings() {
+    // finalized booking on top of unfinalized, saved in testInsertBooking()
+    $insertResult = bookingsapi_booking_save($this->bookingFinal);
+    $this->assertEqual($insertResult, SAVED_NEW);
+  }
+
+  function testConflictingBookings() {
+    $booking = array(
+        'rid' => $this->res_AVA_R['rid'],
+        'start' => '2008-01-01 03:00:00',
+        'end' => '2008-01-01 04:30:00',
+        'finalized' => 0
+    );
+    $insertResult = bookingsapi_booking_save($this->bookingFinal);
+    // no rule in the API against saving an unfinalized booking under the timespan of a finalized one
+    $this->assertEqual($insertResult, SAVED_NEW);
+    unset($booking['bid']);
+    $booking['finalized'] = 1;
+    $insertResult = bookingsapi_booking_save($this->bookingFinal);
+    // however, finalized bookings cannot overlap
+    $this->assertEqual($insertResult, BOOKINGSAPI_TIME_CONFLICT);
+    // promoting an unfinalized booking to finalized while another finalized booking occupies
+    // some or all of its time slot is not permitted either
+    $tryPromote = $this->bookingUnfinal;
+    $tryPromote['finalized'] = 1;
+    // this attempt also tests whether bookings/availability info whose endpoints
+    // are not within the attempted booking's timespan are taken into account
+    $insertResult = bookingsapi_booking_save($tryPromote);
+    $this->assertEqual($insertResult, BOOKINGSAPI_TIME_CONFLICT);
+  }
+
+  function testConsistencyCheck() {
+    // ?
+  }
+
+  function testCleanup() {
+    bookingsapi_resource_delete($this->res_UNA_R['rid']);
+    bookingsapi_resource_delete($this->res_UNA_F['rid']);
+    bookingsapi_resource_delete($this->res_AVA_R['rid']);
+    bookingsapi_resource_delete($this->res_AVA_F['rid']);
+  }
+}

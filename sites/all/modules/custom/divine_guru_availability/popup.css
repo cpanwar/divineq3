@@ -41,3 +41,16 @@ color:#6fa5fd;
 font-weight:700;
 display:block;
 }
+
+
+.popups{ margin:0px; padding:0px;}
+.popups table { margin:0px; padding:0px; border:1px solid grey; border-width:1x 1px 0px 0px;}
+.popups table td { margin:0px; padding:4px; border:1px solid grey; border-width:0x 0px 1px 1px;}
+.popups .border-b{ border-width:1x 1px 0px 1px;}
+
+.timeslot_tables tbody {
+  border-top:none;
+}
+.timeslot_tables td {
+  padding:0.3em 0.1em;
+}

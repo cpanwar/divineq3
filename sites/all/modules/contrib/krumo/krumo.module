@@ -1,0 +1,219 @@
+<?php
+
+/**
+ * @file
+ * The theme system, which controls the output of Drupal.
+ *
+ */
+
+/**
+ * Implementation of hook_help().
+ */
+function krumo_help($path, $arg) {
+  switch ($path) {
+    case 'admin/help#krumo':
+      return t('<p>Provides an alternate means of debugging during development using a stack to print variables to a block.</p>
+							 	<p>This module leverages the Devel module\'s implementation of <a href="http://krumo.kaloyan.info" target="_blank">Krumo</a> to debug variables.  It uses the Devel module\'s configuration for <a href="http://krumo.kaloyan.info" target="_blank">Krumo</a>.</p>
+								<h2>Usage</h2>
+								<p>Add a variable to the stack by calling <strong>krumo_add</strong> ( <a href="http://us.php.net/manual/en/language.pseudo-types.php#language.types.mixed" target="_blank">mixed</a> <i>$variable</i> [, string $stack_name ] )</p>
+								<h3>Parameters</h3>
+								<p><i>variable</i>: The string, array, or object to trace.</p>
+								<p><i>stack_name</i>: The name of the stack that will be displayed in the output. (this is an optional parameter)</p>
+								<br/>
+								<u>Examples</u>
+								<p>Calling <i>kurmo_add</i> to trace your variable:</p>
+								<p><i>function my_function () {
+												<br/>&nbsp;&nbsp;// call krumo_add - pass my_variable as the variable and "my-variable" as the stack name.
+												<br/>&nbsp;&nbsp;krumo_add($my_variable,\'my-variable\');
+											<br/>}
+								</i></p>
+								<p>or</p>
+								<p>Calling <i>kurmo_add</i> to trace your array:</p>
+								<p><i>function my_function () {
+												<br/>&nbsp;&nbsp;// call krumo_add - pass an in-line array as the variable and "my-array" as the stack name.
+												<br/>&nbsp;&nbsp;krumo_add(array(\'test_array\' => array(\'one\'=>1,\'two\'=>2)),\'my-array\'););
+											<br/>}
+								</i></p>
+								<p>Calling <i>kurmo_add</i> from within <a href="http://api.drupal.org/api/function/hook_nodeapi/6" target="_blank">hook_nodeapi</a>:</p>
+								<p><i>function hook_nodeapi (&$node, $op) {
+												<br/>&nbsp;&nbsp;// call krumo_add - pass $node as the variable and $op as the stack name.
+												<br/>&nbsp;&nbsp;krumo_add($node, $op);
+											<br/>}
+								</i></p>
+								<h3>Optional settings</h3>
+								<p>In the block configuration you will find the following options:</p>
+								<p><i>backtrace</i>: Show results of php <a href="http://us.php.net/manual/en/function.debug-backtrace.php" target="_blank">debug_backtrace</a> function.</p>
+								<p><i>includes</i>: Show results of php <a href="http://us2.php.net/manual/en/function.get-included-files.php" target="_blank">get_included_files</a> function.</p>
+								<p><i>functions</i>: Show results of php <a href="http://us2.php.net/manual/en/function.get-defined-functions.php" target="_blank">get_defined_functions</a> function.</p>
+								<p><i>classes</i>: Show results of php <a href="http://us2.php.net/manual/en/function.get-declared-classes.php" target="_blank">get_declared_classes</a> function.</p>
+								<p><i>defines</i>: Show results of php <a href="http://us2.php.net/manual/en/function.get-defined-constants.php" target="_blank">get_defined_constants</a> function.</p>
+								<p><i>path</i>: Show results of php <a href="http://us2.php.net/manual/en/function.ini-get.php" target="_blank">ini_get(\'include_path\')</a> function.</p>
+								<p><i>get</i>: Show results of php <a href="http://us2.php.net/manual/en/reserved.variables.get.php" target="_blank">$_GET</a> variables.</p>
+								<p><i>post</i>: Show results of php <a href="http://us2.php.net/manual/en/reserved.variables.post.php" target="_blank">$_POST</a> variables.</p>'
+  );
+    case 'admin/modules#description':
+      return t('Provides an alternate means of debugging during development using a stack to print variables to a block.');
+  }
+}
+
+/**
+ * Block settings
+ *
+ * @manages block settings
+ */
+function krumo_block($op = 'list', $delta = 0, $edit = array()) {
+  // The $op parameter determines what piece of information is being requested.
+  switch ($op) {
+    case 'list':
+      // Krumo block.
+      $blocks[0] = array(
+        'info'       => t('Krumo'),
+      );
+      return $blocks;
+    case 'configure':
+      // Configure form
+      $form = array();
+      if ($delta == 0) {
+        $form['krumo_show_additional_options'] = array(
+          '#type' => 'checkboxes',
+          '#title' => 'Additional options',
+          '#default_value' => variable_get('krumo_show_additional_options', array()),
+          '#options' => array(
+            'backtrace' => 'Debug backtrace',
+            'includes' => 'Included (or requried) files',
+            'functions' => 'Included functions',
+            'classes' => 'Declared classes',
+            'defines' => 'Defined constants',
+            'path' => 'Specified directories under your include_path option.',
+            'get' => 'List of all values from the $_GET array.',
+            'post' => 'List of all values from the $_POST array.',
+          ),
+          '#description' => t('Show additional options after printing stack.'),
+        );
+        $form['krumo_show_additional_options_always'] = array(
+          '#type' => 'checkbox',
+          '#title' => 'Always show additional options',
+          '#default_value' => variable_get('krumo_show_additional_options_always', TRUE),
+          '#description' => t('If this is selected, additional options will always be displayed. If not, additional options will only be displayed when there is atleast one item in the stack.'),
+        );
+      }
+      return $form;
+    case 'save':
+      // Save form
+        if ($delta == 0) {
+          // Have Drupal save the string to the database.
+          variable_set('krumo_show_additional_options', $edit['krumo_show_additional_options']);
+          variable_set('krumo_show_additional_options_always', $edit['krumo_show_additional_options_always']);
+        }
+      return;
+    case 'view': default:
+      // Show bloack
+      switch ($delta) {
+        case 0:
+          // Set Block subject
+          $block['subject'] = t('Krumo');
+          // Set block content
+          $block['content'] = krumo_contents($delta);
+        break;
+      }
+      return $block;
+  }
+}
+
+/**
+ * Block content
+ *
+ * @formats block content based on block settings
+ */
+function krumo_contents($block_id) {
+  global $_krumo_debug_variables;
+  
+  if (!$_krumo_add_css) {
+    drupal_add_css((drupal_get_path('module', 'krumo') .'/krumo.css'));
+    $_krumo_add_css = TRUE;
+  }
+  switch ($block_id) {
+    case 0:
+      //echo 'count: ' . count($debug_variables);
+      // check if debug variables exist
+      // check if backtrace should be added to debug
+      //if (variable_get('krumo_show_additional', TRUE)) $debug_variables['backtrace'] = debug_backtrace();
+      //if (in_array('backtrace', variable_get('krumo_show_additional_options', array()), TRUE)) $debug_variables['backtrace'] = debug_backtrace();
+      // leverage the devel module function kdevel print oject
+      //return kdevel_print_object ($debug_variables);
+      //return (has_krumo()) ? krumo_ob($debug_variables) : 'No variables in stack';
+
+      if (has_krumo()) {
+        // add debug variables to final output
+        if (count($_krumo_debug_variables)) $final_output = '<div class="krumo-title"><br/>This is a Debug of your variables.<br/></div>'. krumo_ob($_krumo_debug_variables);
+        // set always show additional options
+        $always_show_additional_options = variable_get('krumo_show_additional_options_always', TRUE);
+        // if true show, if false only show if
+        if ((count($_krumo_debug_variables) && !$always_show_additional_options) || $always_show_additional_options) {
+          // capture object output
+          ob_start();
+          if (in_array('backtrace', variable_get('krumo_show_additional_options', array()), TRUE)) {
+            // include title since the current version of krumo class doesn't have one for some reason
+            ?>
+            <div class="krumo-title">
+            This is a Debug backtrace.
+            </div>
+            <?php
+            krumo::backtrace();
+          }
+          if (in_array('includes', variable_get('krumo_show_additional_options', array()), TRUE)) krumo::includes();
+          if (in_array('functions', variable_get('krumo_show_additional_options', array()), TRUE)) krumo::functions();
+          if (in_array('classes', variable_get('krumo_show_additional_options', array()), TRUE)) krumo::classes();
+          if (in_array('defines', variable_get('krumo_show_additional_options', array()), TRUE)) krumo::defines();
+          if (in_array('path', variable_get('krumo_show_additional_options', array()), TRUE)) krumo::path();
+          if (in_array('get', variable_get('krumo_show_additional_options', array()), TRUE)) krumo::get();
+          if (in_array('post', variable_get('krumo_show_additional_options', array()), TRUE)) krumo::post();
+          $output = ob_get_contents();
+          ob_end_clean();
+          $final_output .= $output;
+        }
+        return $final_output;
+      }
+    break;
+  }
+}
+
+
+//ONLY UNCOMMENT FOR TESTING
+/*
+function krumo_init() {
+	krumo_add(array('test_array' => array('one'=>1,'two'=>2)),'this-is-a-test');
+}
+ */
+/*
+function krumo_nodeapi (&$node, $op) {
+	//krumo_add($node, $op);
+}
+ */
+
+/**
+ * Add variable to stack
+ *
+ * @return void
+ */
+function krumo_add($add_variables, $stack_name = NULL) {
+  global $_krumo_debug_variables;
+  // check if debug variables is empty
+  if (empty($_krumo_debug_variables)) $_krumo_debug_variables = array();
+  if (isset($add_variables)) {
+    if ($stack_name!=NULL) {
+      // clean stack name
+      $stack_name = str_replace(' ', '-', $stack_name);
+      // check if stack name exists
+      while (array_key_exists($stack_name, $_krumo_debug_variables)) {
+        $stack_itt++;
+        // add itteration to stack name (so the array has no duplicate keys)
+        $stack_name .= '-'. $stack_itt;
+      }
+      $_krumo_debug_variables[$stack_name] = $add_variables;
+    }
+    else {
+      $_krumo_debug_variables[] = $add_variables;
+    }
+  }
+}

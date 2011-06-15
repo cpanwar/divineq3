@@ -1,0 +1,1032 @@
+<?php
+	$product_nid = 4114;
+/**
+ * Implementation of hook_menu().
+*/
+	function booking_menu() {
+		$items['booking'] = array(
+		  'title' => 'Class Scheduling Wizard',
+		  'page callback' => 'booking_wizard',  
+		  'access callback' => 'divine_bookings_schedules_view_access',
+		);
+	 
+		// Menu for listing of all packages purchased by a user
+
+			$items['user/%user/schedules'] = array(
+				'title' => t('Booked Schedules'),
+				'description' => t('View your scheduled classes.'),
+				'page callback' => 'divine_bookings_schedules_view',    
+				'access callback' => 'divine_bookings_schedules_view_access',
+				'access arguments' => array(1),
+				'page arguments' => array(1),
+				'type' => MENU_LOCAL_TASK,
+				'weight' => 0,
+			);  				
+			
+			$items['admin/settings/trial-setting'] = array(
+				'title' => t('Trial package settings'),
+				'description' => t('Set the node id which belongs to the trial package'),
+				'page callback' => 'drupal_get_form',
+				'page arguments' => array('trial_admin'),
+				'access arguments' => array('access administration pages'),
+				'type' => MENU_NORMAL_ITEM,
+		 	);
+					
+		return $items; 
+	}
+
+	function trial_admin() {
+		$form = array();
+
+		$form['trial-id'] = array(
+		  '#type' => 'textfield',
+		  '#title' => t('Node id for trial package'),
+		  '#default_value' => variable_get('trial-id', 0),
+		  '#size' => 10,
+		  '#maxlength' => 10,
+		  '#description' => t("The node id for the trial package."),
+		  '#required' => TRUE,
+		);
+
+		return system_settings_form($form);
+	}
+	
+	
+	function divine_bookings_schedules_view_access() {
+		Global $user;
+		if($user->uid > 0) 
+		  return TRUE;
+		else
+		  return FALSE;  
+	}
+	function divine_bookings_schedules_view($account) {
+		$uid = $account->uid;		
+		if ($account->uid ==1) {
+			$query = db_query("SELECT * from booked_sessions");
+			drupal_set_title(t('Booked Schedules'));
+			$header=array('User Email','Package name','Yoga Guru','Time Slot','Booking Time');
+			while ($result = db_fetch_array($query)) {
+				$uid = $result['uid'];
+				$uname_query=db_query("Select mail from users where uid=$uid");
+				$uname_result_array = db_fetch_array($uname_query);
+				$uname = $uname_result_array['mail'];
+				$resid=$result['resource_id'];
+				$pid=$result['package_id'];
+				$timeslot=$result['time_slot'];
+				$created=$result['created'];
+				$query1=db_query("Select title from node where nid=$resid");
+				$res_array=db_fetch_array($query1);
+				$res_name=$res_array['title'];    
+				$query2=db_query("Select title from node where nid=$pid");
+				$res_array=db_fetch_array($query2);
+				$pack_name=$res_array['title'];    
+				$rows[]=array(l($uname,'user/'.$uid),l($pack_name,'node/'.$pid),l($res_name,'node/'.$resid),$timeslot,format_date($created,'small',''));    
+			}
+			if (count($rows)) {
+				$output = theme('table', $header, $rows);
+			}
+			else {
+				$output = "<p>" . t('You have not scheduled any classes yet.') . "</p>";
+			}
+		}
+		else {
+			$query = db_query("SELECT * from booked_sessions where uid=$uid	");
+			drupal_set_title(t('Booked Classes'));
+			$header=array('Package name','Yoga Guru','Time Slot','Booking Time');
+			while ($result = db_fetch_array($query)) {
+				$resid=$result['resource_id'];
+				$pid=$result['package_id'];
+				$timeslot=$result['time_slot'];
+				$created=$result['created'];
+				$query1=db_query("Select title from node where nid=$resid");
+				$res_array=db_fetch_array($query1);
+				$res_name=$res_array['title'];    
+				$query2=db_query("Select title from node where nid=$pid");
+				$res_array=db_fetch_array($query2);
+				$pack_name=$res_array['title'];    
+				$rows[]=array(l($pack_name,'node/'.$pid),l($res_name,'node/'.$resid),$timeslot,format_date($created,'small',''));    
+			}
+			if (count($rows)) {
+				$output = theme('table', $header, $rows);
+			}
+			else {
+				$output = "<p>" . t('You have not scheduled any classes yet.') . "</p>";
+			}
+		}
+		return $output;
+	}
+/*----- PART I CTOOLS WIZARD IMPLMENTATION ----- */
+
+/**
+ * menu callback for the multistep form 
+ * step is whatever arg one is -- and will refer to the keys listed in
+ * $form_info['order'], and $form_info['forms'] arrays
+*/
+	function booking_wizard() { 
+
+		$step = arg(1);
+		// required includes for wizard
+		ctools_include('wizard');
+		ctools_include('object-cache');
+		
+		// *** SETUP ARRAY multistep 
+		$form_info = array(
+		  'id' => 'booking_basic',
+		  'path' => "booking/%step",
+		  'show trail' => TRUE,
+		  'show back' => TRUE,
+		  'show cancel' => true,
+		  'show return' =>FALSE,
+		  'next text' => 'Next',		  
+ 		  'back text' => 'Back',
+		  'finish text' => 'Confirm Booking',    
+		  'next callback' =>  'booking_basic_add_subtask_next',
+		  'finish callback' => 'booking_basic_add_subtask_finish',
+		  'return callback' => 'booking_basic_add_subtask_finish',
+		  'cancel callback' => 'booking_basic_add_subtask_cancel',
+		  'order' => array(
+		    'booking_type' => t('<span class="step-1 steps"><img src="/sites/all/themes/divine/images/step-1.png"></span>'),    
+		    'create' => t('<span class="step-2 steps"><img src="/sites/all/themes/divine/images/step-2.png"></span>'),
+		    'dates' => t('<span class="step-3 steps"><img src="/sites/all/themes/divine/images/step-3.png"></span>'),  
+		    'confirmation' => t('<span class="step-4 steps"><img src="/sites/all/themes/divine/images/step-4.png"></span>'),
+		  ),
+		  'forms' => array(
+		  	'booking_type' => array(
+		      'form id' => 'booking_type_form'
+		    ),
+		    'create' => array(
+		      'form id' => 'resource_add_form'
+		    ),
+		    'dates' => array(
+		      'form id' => 'resource_date_form',       
+		    ),    
+		    'confirmation' => array(
+		      'form id' => 'confirmation_form',       
+		    ),    
+		  ),
+		);
+		
+		// *** SETTING THE FORM UP FOR MULTISTEP *** //
+		$form_state = array(
+		  'cache name' => NULL,
+		);
+		// no matter the step, you will load your values from the callback page
+		$booking = booking_basic_get_page_cache(NULL);
+		if (!$booking) {
+		  // set form to first step -- we have no data
+		  $step = current(array_keys($form_info['order']));
+		  $booking = new stdClass();   
+		  // ** set the storage object so its ready for whatever comes next
+		  ctools_object_cache_set('booking_basic', $form_state['cache name'], $booking);
+		  ctools_object_cache_clear('booking_basic', $form_state['cache name']);
+		}
+		//THIS IS WHERE WILL STORE ALL FORM DATA
+		$form_state['booking_obj'] = $booking;
+		
+		// and this is the witchcraft that makes it work
+		$output = ctools_wizard_multistep_form($form_info, $step, $form_state);
+		return $output;
+	}
+
+/*-------------------------- PART 2 JUST CLASSIC FORMAPI  ---------------------- */
+
+/**
+ * All forms within this wizard will take $form, and $form_state by reference
+ * note that the form doesn't have a return value.
+*/
+	function booking_type_form(&$form, &$form_state) { 
+	 		$pid = $_GET['package'];  
+			$instance_id=$_GET['instance_id'];
+			if ($form_state['booking_obj']->package_id_set!=1)
+				$form_state['booking_obj']->package_id=$pid;
+			if ($form_state['booking_obj']->instance_id_set!=1) 
+				$form_state['booking_obj']->instance_id=$instance_id;
+			if (($form_state['booking_obj']->package_id!='')||($form_state['booking_obj']->instance_id!='')) {
+				$form_state['booking_obj']->package_id_set=1;
+				$form_state['booking_obj']->instance_id_set=1;
+			}
+			
+			Global $user;
+			$uid=$user->uid;
+			if($uid==0) {
+				unset($form['buttons']);
+				$form['error'] = array(
+				  '#title' => 'Access Denied',
+				  '#type' => 'hidden',            
+				  '#prefix' => 'Only Registered Users are previleged to schedule a class.'.l('click here to login/register','user/')
+				);
+			}
+			else {
+			if ($form_state['booking_obj']->package_id=='') {    
+				unset($form['buttons']);
+				$form['error'] = array(
+				  '#title' => 'No Resource Selected',
+				  '#type' => 'hidden',            
+				  '#prefix' => 'No Package Selected.'.l('click here to book a resource','user/'.$uid.'/packages')
+				);
+			}
+			else {				
+				$type = array (0 => 'Timeslots',1 => 'Yoga Gurus');
+				$form['type'] = array (
+					'#title' => 'Select the booking type',
+					'#type' => 'select',
+					'#options' => $type,		
+					'#description' => 'Select Timeslots to book a class based on timings and Yoga Gurus to book on the basis of a yoga guru',
+				);
+			}
+		}
+	}
+	
+	function booking_type_form_submit(&$form, &$form_state) {    
+		$submitted = $form_state['values'];
+		$save_values = array('type');    
+		foreach($save_values as $value) {    
+		  $form_state['booking_obj']->$value = $submitted[$value];   
+		}
+  }
+  
+	function resource_add_form(&$form, &$form_state) {    		
+		//krumo($form_state);
+		
+		$booking = &$form_state['booking_obj'];
+
+		if ($form_state['booking_obj']->type == 0) {
+				Global $user;
+			$uid = $user->uid;
+			$tz_result = db_query("Select * from users where uid = $uid");
+			$tz_result_array = db_fetch_array($tz_result);
+			$tz_user = $user->timezone_name;
+			$form['timeslot'] = array (
+				'#title' => 'Start time for booking',
+				'#type' => 'date_popup',
+				'#id' => 'datepicker',
+				'#description' => '<br><br>Enter the timeslot in the format <b>YYYY-MM-DD H:M</b>.<br>Note: Enter the time according to your timezone.Your
+				 availability will be checked 1 hour ahead from the time you specify here.',
+				'#required' => 0,
+			);
+		
+			$form['timezone_message'] = array (
+				'#type' => 'hidden',
+				'#suffix' => 'Your current timezone is:<b>'.$tz_user.'</b>.<font color="red">If this doesnot match your timezone kindly set your timezone before booking any classes.</font>'.l('Click here to set your timezone','user/'.$uid.'/edit'),
+			); 			
+					
+		}
+		elseif ($form_state['booking_obj']->type == 1) {			      
+				$booking = &$form_state['booking_obj'];
+				$result=db_query("Select * from node where type='yoga_teachers'");				
+				$values=array();
+				while($res=db_fetch_array($result)) {
+				  $nid=$res['nid'];    
+				  $result_body=db_query("Select * from node_revisions where nid=$nid");				  
+				  $res_body=db_fetch_array($result_body);
+				  $fid_query = db_query("SELECT field_image_guru_fid from content_type_yoga_teachers where nid=$nid");
+				  $fid_array = db_fetch_array($fid_query);
+				  $fid = $fid_array['field_image_guru_fid'];
+				  $imagepath_query = db_query("SELECT filepath from files where fid=$fid");
+				  $imagepath_array = db_fetch_array($imagepath_query);
+				  $imagepath = $imagepath_array['filepath'];
+				  $values[$res['nid']]='<img class = "guru-image" src =/'.$imagepath.'>'.'<h3>'.$res['title'].'</h3><br>'.$res_body['body'].'<br><br>';
+				}
+				$form['resource'] = array(
+				  '#title' => 'Yoga Gurus',
+				  '#type' => 'radios',
+				  '#required' => 1,
+				  '#default_value' => $booking->resource,
+				  '#options' => $values,
+				);
+				
+			$form_state['no buttons'] = TRUE; 
+			
+			}			
+	}
+
+/**
+ * Note that this validate callback operates exactly like it does in the regular form api
+*/
+	function resource_add_form_validate(&$from, &$form_state) {
+	if ($form_state['booking_obj']->type == 0) {
+		if ($form_state['values']['timeslot'] == '')
+			form_set_error('timeslot','Please enter the timeslot you want to book.');
+	}
+	}
+
+/**
+ * KEY CONCEPT: generally, you will never save data here -- you will simply add values to the 
+ * yet to be saved ctools_cache object. 
+ * 
+ * Saving happens at the end, within the $form_info['finish callback'];
+*/
+	function resource_add_form_submit(&$from, &$form_state) {
+	
+		$submitted = $form_state['values'];    
+		if ($form_state['booking_obj']->type == 0) {
+			$save_values = array('timeslot');
+		}
+		elseif ($form_state['booking_obj']->type == 1) {
+			$save_values = array('resource');	
+		}
+		foreach($save_values as $value) {
+		  // set it in cstorage, the voodoo in part 3 will take care of the rest magically
+		  $form_state['booking_obj']->$value = $submitted[$value];
+		} 
+		$form_state['booking_obj']->page_num = 0;
+	}
+
+
+	function resource_date_form(&$form, &$form_state) { 
+//			krumo($form_state);								
+			$booking = &$form_state['booking_obj'];					 			
+			if ($booking->type == 0) {
+				$timeslot = $booking->timeslot;					
+				$now = strtotime('now');
+				if ($now >=strtotime($timeslot)) {
+					$form['pastdate'] = array (
+						'#type' =>'hidden',
+						'#suffix' => '<h4>Date already past.Cannot book a class on the past date.</h4>',
+					);
+				}
+				else {
+					$slot_string = date('d M Y H:i A',strtotime($timeslot)).' - '.date('d M Y H:i A',strtotime($timeslot)+3600);
+	//				echo 'slot ->'.$slot_string;
+					$booking->slot = $slot_string;
+				
+					Global $user;
+					$tz = $user->timezone;
+	//				echo $tz;
+					$a = 0;
+					$b = 0;
+					$flag = 0;
+					$slot_query = db_query("Select * from content_field_availability");
+					$available_slots_start = array();
+					$available_slots_end = array();
+					$available_slots = array();
+					while ($slot_query_array = db_fetch_array($slot_query)) {
+						$start = strtotime($slot_query_array['field_availability_value']);
+						$end = strtotime($slot_query_array['field_availability_value2']);
+															
+						while ($start+3600 <= $end) {
+							$available_slots_start[$a] = $start; 
+							$available_slots_end[$a] = $start+3600; 						
+							$start = $start + 3600;
+							$a++;
+						}							
+					}
+				
+	//				echo date('d M Y H:i A',$available_slots_start[286]);
+				
+					$counter_availableslots = count($available_slots_start);
+					$counter_availableslots = $counter_availableslots - 1;
+	//				echo $counter_availableslots;
+				
+					while ($counter_availableslots >= 0) {
+						$available_slots[$b] = date('d M Y H:i A',$available_slots_start[$counter_availableslots]).' - '.date('d M Y H:i A',$available_slots_end[$counter_availableslots]);
+						$counter_availableslots--;								
+						$b++;
+					}
+	//				print_r($available_slots);
+					$count_available_slots = count($available_slots);				
+																							
+					if ($user->timezone !=19800) {
+							$uid = $user->uid;
+							$tz_result = db_query("Select * from users where uid = $uid");
+							$tz_result_array = db_fetch_array($tz_result);
+							$tz_user = $tz_result_array['timezone_name'];
+											  	
+							$timezone_utc = new DateTimeZone('UTC');							  	
+							$timezone_site = new DateTimeZone('Asia/Kolkata');
+							$timezone_user = new DateTimeZone($tz_user);
+
+							$dateTime_utc = new DateTime("now", $timezone_utc);								  	
+							$dateTime_site = new DateTime("now", $timezone_site);
+							$dateTime_user = new DateTime("now", $timezone_user);		
+						
+							$offset = $timezone_site->getOffset($dateTime_site) - $timezone_user->getOffset($dateTime_user);										
+						
+	//						echo $offset;
+						
+							$timeslot = strtotime($timeslot) + $offset;		
+							$timeslot = date('d M Y H:i',$timeslot);										
+					}
+					
+					$slot_check_string = date('d M Y H:i A',strtotime($timeslot)).' - '.date('d M Y H:i A',strtotime($timeslot)+3600); 											
+					$slot_utc_string = date('d M Y H:i A',strtotime($timeslot)).' - '.date('d M Y H:i A',strtotime($timeslot)+3600); 											
+	//				echo $slot_check_string;				
+					while ($count_available_slots >= 0) {		
+						if($available_slots[$count_available_slots]==$slot_check_string) {						
+							$flag++;
+						}
+						$count_available_slots--;				
+					}
+				
+					$timeslot_check = date('Y-m-d H:i:s A',strtotime($timeslot));		
+//					echo $timeslot_check;		
+	//				$timeslot_check = strtotime($timeslot_check);
+	/*				echo strtotime($timeslot_check);
+				
+					echo strtotime('2011-05-13 06:00:00');
+				
+					echo strtotime('2011-05-13 18:00:00');*/
+						if ($flag==0) {
+							$form['unavailable'] = array (
+								'#type' => 'hidden',
+								'#prefix' => 'No Yoga guru is available for this timeslot.',
+							);
+						unset($form['buttons']['next']);
+						}
+						else {
+								$resource_query = db_query("Select nid from content_field_availability where UNIX_TIMESTAMP(field_availability_value) <= UNIX_TIMESTAMP('$timeslot_check') and UNIX_TIMESTAMP(field_availability_value2) > UNIX_TIMESTAMP('$timeslot_check')");
+								while ($resource_query_array = db_fetch_array($resource_query)) {
+									$resid = $resource_query_array['nid'];
+//									echo $resid;
+		//						echo 'UTC ->'.$slot_string_utc;								
+									$query = db_query("Select count(*) from booked_sessions where time_slot_utc='$slot_check_string'");
+									$count_query = db_fetch_array($query);
+									$count_conflicts = $count_query['count(*)'];
+																			
+									if ($count_conflicts == 0) {
+										$booking->slot_utc = $slot_utc_string;										
+										$query1 = db_query("Select * from node where nid=$resid");
+										$res_query1 = db_fetch_array($query1);																		
+										$res_name = $res_query1['title'];
+										$query2 = db_query("Select * from node_revisions where nid = $resid");
+										$res_query2 = db_fetch_array($query2);
+										
+										$fid_query = db_query("SELECT field_image_guru_fid from content_type_yoga_teachers where nid=$resid");
+										$fid_array = db_fetch_array($fid_query);
+										$fid = $fid_array['field_image_guru_fid'];
+										$imagepath_query = db_query("SELECT filepath from files where fid=$fid");
+										$imagepath_array = db_fetch_array($imagepath_query);
+										$imagepath = $imagepath_array['filepath'];
+										$values_avail[$resid] = '<img class = "guru-image" src =/'.$imagepath.'>'.'<h3>'.$res_name.'</h3><br>'.$res_query2['body'].'<br><br>';
+									}								
+									elseif ($count_conflicts != 0) {
+										unset($form['buttons']['next']);
+										$form['unavailable'] = array (
+											'#type' => 'hidden',
+											'#prefix' => 'Sorry! No Yoga Gurus available in this time slot.Select another timeslot.',
+										);							
+									}												
+								}
+							}
+							if (count($values_avail) > 0) {
+								$form['resource'] = array (
+										'#title' => 'Yoga Gurus',
+										'#type' => 'radios',
+										'#required' => 1,
+										'#default_value' => $booking->resource,
+										'#options' => $values_avail																		
+								);								
+							}									
+				}
+			}
+			elseif ($form_state['booking_obj']->type == 1) {
+				unset($form['buttons']['next']);
+				$i=0;
+				$t=0;
+				$d=0;
+				$th=0;
+				$flag_th=0;
+				$b=0;
+				$s=0;
+				$s_utc=0;			
+				$emp = 0;
+				$emp_close = 0;	
+				$booking = &$form_state['booking_obj'];
+				$pg_current = $booking->page_num;
+				$resid=$form_state['booking_obj']->resource;
+				$counter_start = $pg_current*5;
+				$counter_inc = 5;
+				$availability_dates=array();
+				$slots = array();
+
+				$count_availdates_query = db_query("Select count(*) from content_field_availability where nid=$resid and UNIX_TIMESTAMP(field_availability_value) > UNIX_TIMESTAMP(NOW())");
+				
+				$count_availdates_array = db_fetch_array($count_availdates_query);
+				$count_availdates = $count_availdates_array['count(*)'];
+				
+				$pages_num = ceil(($count_availdates)/7);	
+				
+				$result=db_query("select * from content_field_availability where nid=$resid and UNIX_TIMESTAMP(field_availability_value) >= UNIX_TIMESTAMP(NOW()) order by `content_field_availability`.`delta` asc limit $counter_start,$counter_inc");
+
+				while($res=db_fetch_array($result)) {
+				  $availability_dates_start[$i] = $res['field_availability_value'];
+				  $availability_dates_end[$i] = $res['field_availability_value2'];
+				  $i++;
+				}      
+
+				$count = count($availability_dates_start);
+				  $start_utc = strtotime($availability_dates_start[0]);       
+					$end_utc = strtotime($availability_dates_end[0]);          
+			
+					while($start_utc+3600 <= $end_utc) {      
+				    $slots_utc[$s_utc]= $start_utc;
+				    $start_utc=$start_utc+3600;
+				    $s_utc++; 
+				  }
+				  
+				  $slots_utc=array_reverse($slots_utc); 
+				  Global $user;
+//				  echo $user->timezone;
+				  if ($user->timezone == 19800) {
+				  	$start = strtotime($availability_dates_start[0]);       
+				  	$end = strtotime($availability_dates_end[0]);					  
+				  }
+				  else {				  					  		
+				  	global $user;		  							
+				  	$uid = $user->uid;
+				  	$tz_result = db_query("Select * from users where uid = $uid");
+				  	$tz_result_array = db_fetch_array($tz_result);
+				  	$tz_user = $tz_result_array['timezone_name'];
+				  					  	
+						$timezone_utc = new DateTimeZone('UTC');							  	
+				  	$timezone_site = new DateTimeZone('Asia/Kolkata');
+				  	$timezone_user = new DateTimeZone($tz_user);
+
+						$dateTime_utc = new DateTime("now", $timezone_utc);								  	
+				  	$dateTime_site = new DateTime("now", $timezone_site);
+						$dateTime_user = new DateTime("now", $timezone_user);		
+						
+//						var_dump($dateTime_user);
+//						var_dump($dateTime_site);
+//						var_dump($dateTime_utc);
+						$offset = $timezone_site->getOffset($dateTime_site) - $timezone_user->getOffset($dateTime_user);
+																		
+//						echo $offset;
+						
+						if ($timezone_site->getOffset($dateTime_site) > $timezone_user->getOffset($dateTime_user))
+							$offset = 0 - $offset;
+							
+//						echo $offset;																								
+						$start = strtotime($availability_dates_start[0]);       
+//					$start_tz=format_date($start, 'small','');     										
+//					echo $start_tz;
+						$start = $start + $offset;
+									
+						$end = strtotime($availability_dates_end[0]);
+//					$end_tz=format_date($end, 'small','');     	
+//					echo $end_tz;
+					 	$end = $end + $offset;			
+				 	}
+				  while($start+3600 <= $end) {      
+
+				    $slots[$s]= $start;
+				    $start=$start+3600;
+				    $s++; 
+				  }
+				$slots=array_reverse($slots);      
+				$counter_slots=count($slots);
+				$counter_slots=$counter_slots - 1;
+
+				$counter_table=$counter_slots*7;
+				
+				$result=db_query("select * from content_field_availability where nid=$resid and UNIX_TIMESTAMP(field_availability_value) > UNIX_TIMESTAMP(NOW()) order by `content_field_availability`.`delta` asc limit $counter_start,$counter_inc");
+
+				//Hidden field for table tag
+				$form['table'] = array (
+				  '#type' => 'hidden',
+				  '#suffix' => '<table style="margin-bottom:10px;background:#1DA0BC;"><tr>',
+				);
+				$form['description'] = array (
+						'#type' => 'hidden',						
+						'#prefix' => '<th style="color:#ffffff;padding:5px;">',												
+						'#suffix' => 'DATES/SLOTS</th>',
+				);				
+				if($pg_current > 0) {
+					$form['prev page'] = array (
+						'#type' => 'submit',
+						'#value' =>'<<',
+						'#prefix' => '<th style="padding: 5px;">',
+						'#page_count' => $pages_num,											
+						'#suffix' => '</th>',
+					);
+				}
+				else {
+					$form['prev page'] = array (
+						'#type' => 'hidden',						
+						'#prefix' => '<th>',												
+						'#suffix' => '</th>',
+					);				
+				}
+
+				while($res=db_fetch_array($result)) {
+				  $start = strtotime($res['field_availability_value']);          
+				  $form['date'.$d]=array(
+				    '#type' =>'hidden',
+				    '#suffix' => '<th style="background:#1DA0BC;border: 1px solid #CCC;
+text-align: center;">'.date('d M Y',$start).'</th>',
+				  );
+				  $d++;
+				  $count_dates++;
+				}
+				if($pg_current<$pages_num) {
+					$form['next page'] = array (
+						'#type' => 'submit',
+						'#value' =>'>>',
+						'#prefix' => '<th style="padding: 5px;">',
+						'#page_count' => $pages_num,											
+						'#suffix' => '</th>',
+					);
+				}
+				else {
+					$form['next page'] = array (
+						'#type' => 'hidden',						
+						'#prefix' => '<th>',						
+						'#suffix' => '</th>',
+					);								
+				}
+				$form['th_close'] = array (
+				  '#type' => 'hidden',
+				  '#suffix' => '</tr><tr>',
+				);
+
+				while($counter_slots>=0) {
+				  $form['td'.$t]=array(
+				    '#type' => 'hidden',
+				    '#suffix' =>'<td colspan=2>'.date('H:i A',$slots[$counter_slots]).' - '.date('H:i A',$slots[$counter_slots]+3600).'</td>', 
+				  );
+				  					  				  				  
+				  $counter_dates=0;
+				  while($counter_dates < $count_dates) {							
+				    $validate_string=date('d M Y',strtotime($availability_dates_start[$counter_dates])).' '.date('H:i A',$slots[$counter_slots]).' - '.date('d M Y',strtotime($availability_dates_start[$counter_dates])).' '.date('H:i A',$slots[$counter_slots]+3600);
+
+						$v_string=date('d M Y',strtotime($availability_dates_start[$counter_dates])).' '.date('H:i A',$slots_utc[$counter_slots]).' - '.date('d M Y',strtotime($availability_dates_start[$counter_dates])).' '.date('H:i A',$slots_utc[$counter_slots]+3600);
+													
+ 				    	$slot_locked_query = db_query("SELECT count(*) from slot_locked where slot = '$v_string'");
+							$slot_locked_array = db_fetch_array($slot_locked_query);							
+							$slot_count_locked = $slot_locked_array['count(*)'];					
+							
+				    $result_count=db_query("select count(*) from booked_sessions where time_slot_utc='$v_string'");
+				    $res_count=db_fetch_array($result_count);
+				    $count_duplicates=$res_count['count(*)'];        
+				    if(($count_duplicates==0)&&($slot_count_locked==0)) {
+				      $form['button_'.$t] = array(     
+				      	'#name' => 'slot'.$t,
+				        '#type' => 'submit',   				        				                              
+				        '#val' => $validate_string,  
+				        '#val_utc' => $v_string,      
+				        '#value' => 'Book now',				        
+				        '#prefix' => '<td align="center" style="padding:10px;background:#1DA0BC;">',
+				        '#suffix' => '</td>',
+				      );
+				    }
+				    else {				    					    	
+							if($count_duplicates > 0) {
+						    $form['booked'.$b]=array(
+						      '#type' => 'hidden',
+						      '#suffix' => '<td align="center" style="color:#ffffff;">Already booked</td>',
+						    );
+						    $b++;
+						  }
+						  elseif($slot_count_locked > 0) {						  						  
+						    $form['locked'.$b]=array(
+						      '#type' => 'hidden',
+						      '#suffix' => '<td align="center" style="color:#ffffff;">Locked</td>',
+						    );
+						    $b++;						  
+						  }
+				    }
+				      $counter_dates++;        
+				      $t++;
+				  }
+				  $form['emp'.$emp_close] = array (
+				  	'#type' => 'hidden',
+				  	'#suffix' => '<td></td>',
+				  );
+				  $emp_close++;
+				  $form['td_close'.$td] = array (
+				    '#type' => 'hidden',
+				    '#suffix' =>'</tr>', 
+				  );
+				  $td++;
+				  $counter_slots--;
+				
+			}
+		
+		
+			$form['table_close'] = array (
+				'#type' => 'hidden',
+				'#suffix' => '</table>',
+			);    
+			
+			$form['Locked_description'] = array (
+				'#type' => 'hidden',
+				'#suffix' => '*Locked state means the timeslot is already under process.',
+			); 
+			Global $user;
+			$uid = $user->uid;
+			$tz_user = $user->timezone_name;	
+			$form['timezone_message'] = array (
+				'#type' => 'hidden',
+				'#suffix' => 'The timeslots displayed above are according to the timezone:<b>'.$tz_user.'</b>.<font color="red">If this doesnot match your timezone kindly set your timezone before booking any classes.</font>'.l('Click here to set your timezone','user/'.$uid.'/edit'),
+			); 
+			$form_state['no buttons'] = TRUE;
+		}
+	}
+
+
+
+/**
+ * Same idea as previous steps submit
+*/
+	function resource_date_form_submit(&$form, &$form_state) {    
+		$submitted = $form_state['values'];
+		if ($form_state['booking_obj']->type == 0) {
+			$save_values = array('resource');
+			$booking = &$form_state['booking_obj'];
+			foreach($save_values as $value) {    
+				$form_state['booking_obj']->$value = $submitted[$value];   
+			}	
+			$cache = ctools_object_cache_set('booking_basic', $form_state['cache name'], $booking); 
+		}
+		elseif ($form_state['booking_obj']->type == 1) {
+		$page_num = $form_state['clicked_button']['#value'];
+			if(($page_num=='>>')||($page_num=='<<')) {			
+					$pg_num = $form_state['booking_obj']->page_num;
+					$pg_count = $form_state['clicked_button']['#page_count'];									
+					if($page_num=='>>')
+						$pg_num++;
+					elseif($page_num=='<<')
+						$pg_num--;						
+					$form_state['booking_obj']->page_num = $pg_num;							
+					$form_state['no_redirect'] = FALSE;					
+					$booking = &$form_state['booking_obj'];				
+					$form_state['redirect'] = 'booking/dates';
+					$cache = ctools_object_cache_set('booking_basic', $form_state['cache name'], $booking);        					
+			}		
+			else {
+					$save_values = array('timings');    
+					$slot=$form_state['clicked_button']['#val'];				
+					$slot_utc=$form_state['clicked_button']['#val_utc'];   
+
+					$slot_lock_query = db_query("INSERT INTO slot_locked values('$slot_utc',UNIX_TIMESTAMP(NOW()))");
+					
+					$form_state['booking_obj']->slot = $slot;
+					$form_state['booking_obj']->slot_utc = $slot_utc;
+					
+					$booking = &$form_state['booking_obj'];
+					foreach($save_values as $value) {    
+						$form_state['booking_obj']->$value = $submitted[$value];   
+					}	
+					$cache = ctools_object_cache_set('booking_basic', $form_state['cache name'], $booking);        
+					$form_state['redirect'] = 'booking/confirmation'; 
+			}
+		}	
+  }
+		
+	function confirmation_form(&$form,&$form_state) {
+		//krumo($form_state);
+		$slot_utc = $form_state['booking_obj']->slot_utc;    		
+		$slot_utc_count_query = db_query("select count(*) from booked_sessions where time_slot_utc='$slot_utc_string'");
+		$slot_utc_count_array = db_fetch_array($slot_utc_count_query);
+		$slot_utc_count = $slot_utc_count_array['count(*)'];
+		if($slot_utc_count!=0) {
+			$form['booked'] = array(
+				'#type' => 'hidden',
+				'#prefix' => '<div class = "already-booked">The Session you trying to book has already been booked.</div>'.l('click here to book a resource','user/'.$uid.'/packages'),
+			);
+		}
+		else {
+			global $user;
+			$uid=$user->uid;  
+			$resid=$form_state['booking_obj']->resource;
+			$pid=$form_state['booking_obj']->package_id;
+			$result=db_query("Select title from node where nid=$pid");
+			$pname_array=db_fetch_array($result);
+			$result=db_query("Select title from node where nid=$resid");
+			$resname_array=db_fetch_array($result);
+			$pname=$pname_array['title'];
+			$resname=$resname_array['title'];
+			$slot=$form_state['booking_obj']->slot;
+			$form['Package'] = array(
+				'#type' => 'hidden',
+				'#prefix' => '<div class = "package-name"><b>Package Name</b> =>'.$pname.'<br></div><div class="guru-name"> Yoga Guru =>'.$resname.'<br></div><div class = "time-slot"> Time Slot =>'.$slot.'<br></div>',
+			);
+		}
+	}	
+/*----PART 3 CTOOLS CALLBACKS -- these usually don't have to be very unique  ---------------------- */
+
+/**
+	* Callback generated when the add page process is finished.
+	* this is where you'd normally save.
+*/
+	function booking_basic_add_subtask_finish(&$form_state) {
+		$booking = &$form_state['booking_obj'];
+		// Clear the cache
+		$slot = $form_state['booking_obj']->slot;
+		$slot_utc = $form_state['booking_obj']->slot_utc;    
+		Global $user;
+		$uid=$user->uid;  
+		$to_mail = $user->mail;  
+		$resid=$form_state['booking_obj']->resource;
+		$pid=$form_state['booking_obj']->package_id;
+		
+		$instance_id=$form_state['booking_obj']->instance_id;    
+
+		$query1=db_query("Select title from node where nid=$resid");
+		$res_array=db_fetch_array($query1);
+		$res_name=$res_array['title'];    
+		  
+		$query2=db_query("Select title from node where nid=$pid");
+		$res_array=db_fetch_array($query2);
+		$pack_name=$res_array['title'];      
+		             	
+		db_query("Insert into booked_sessions values($uid,$pid,$resid,'$slot','$slot_utc',UNIX_TIMESTAMP(NOW()))");                   	           	
+		db_query("UPDATE {dw_yoga_sessions} set sessions =sessions - 1 where instance_id=$instance_id"); 
+		$params=array('yoga_guru' => $res_name,'package_name' => $pack_name,'slot' => $slot);
+		$tid = variable_get('trial-id');
+		if($pid ==$tid) {
+			$instance_id_query = db_query("select * from dw_yoga_sessions where uid = $uid and product_id = $pid");
+			$instance_id_array = db_fetch_array($instance_id_query);
+			$instance_id = $instance_id_array['instance_id'];
+			db_query("UPDATE {dw_yoga_sessions} set sessions =sessions - 1 where instance_id=$instance_id");			
+		}
+		
+		db_query("Delete from slot_locked");
+		
+		drupal_set_message('Yoga class scheduled successfully.A Confirmation mail has been sent to you.');
+		ctools_object_cache_clear('booking_basic', $form_state['cache name']);  
+		drupal_mail('booking','confirmation',$to_mail, language_default(), $params);		
+		drupal_mail('booking','confirmation','romaricha@divinewellness.com', language_default(), $params);
+		$form_state['redirect'] = 'user/'.$uid.'/packages'; 
+	}
+
+/**
+ * Callback for the proceed step
+ *
+*/
+	function booking_basic_add_subtask_next(&$form_state) {
+		$booking = &$form_state['booking_obj'];
+		$cache = ctools_object_cache_set('booking_basic', $form_state['cache name'], $booking);
+	}
+
+/**
+ * Callback generated when the 'cancel' button is clicked.
+ *
+ * All we do here is clear the cache.
+*/
+	function booking_basic_add_subtask_cancel(&$form_state) {
+		// Update the cache with changes.
+		Global $user;
+		$uid = $user->uid;
+		db_query("Delete from slot_locked");
+		ctools_object_cache_clear('booking_basic', $form_state['cache name']);
+		$form_state['redirect'] = 'user/'.$uid.'/packages';
+	}
+
+/*----PART 4 CTOOLS FORM STORAGE HANDLERS -- these usually don't have to be very unique  ---------------------- */
+
+/**
+ * Remove an item from the object cache.
+*/
+	function  booking_basic_clear_page_cache($name) {
+		ctools_object_cache_clear('booking_basic', $name);
+	}
+
+/**
+ * Get the cached changes to a given task handler.
+*/
+	function booking_basic_get_page_cache($name) {
+		$cache = ctools_object_cache_get('booking_basic', $name);
+		return $cache;
+	}
+
+
+
+
+	function d($in) {
+		print '<pre>';
+		print_r($in);
+		print '</pre>'; 
+	}
+
+	function booking_mail($key,&$message,$params) {
+	
+		switch($key) {
+		  case 'confirmation' :    		
+		    $message['headers']['Content-Type'] = 'text/html; charset=UTF-8; format=flowed';
+		    $message['subject'] = t('Divine-Wellness-Class booking Confirmation');
+		    $message['body'] = t('<table><tr><td colspan=2><img src="http://www.divinewellness.com/sites/all/themes/divine/logo.png"></td></tr><tr><td>Congratulations your yoga class has been scheduled successfully.<br><br>Your class details are as follows:</td></tr><tr><td>Yoga Guru:</td><td> '.$params['yoga_guru'].'</td></tr><td>Package:</td><td> '.$params['package_name'].'</td></tr><tr><td>Timing:</td><td> '.$params['slot'].'</td></tr></table>');   
+		    break;   			      
+		}
+	}
+
+	function booking_user($op, &$edit, &$account, $category = NULL) {
+		if ($op=='login') {			
+			$uid = $account->uid;
+			$fname_query = db_query('Select value from profile_values where uid='.$uid.' and fid=1');
+			$role_user =  db_result(db_query("SELECT r.name FROM users u, role r, users_roles ur WHERE u.uid = ur.uid AND ur.rid = r.rid AND u.uid =%d", $uid));
+
+			$fname_array = db_fetch_array($fname_query);
+			$fname = $fname_array['value'];
+
+			if($fname=='' && $role_user!='expert') {
+				drupal_set_message('Your first name is not set.Please set it to avoid this warning message.','warning');					
+				drupal_goto('user/'.$uid.'/edit/personel');									
+			}
+			/*($uname = $account->name;
+			$uid = $account->uid;
+			$timezone = $account->timezone;					
+			if (Strpos($uname,'@')!=FALSE)	{
+				$message='Your username is same as your email-id.Please choose a different username.'.$fname;
+				if($timezone == 19800) 
+					$message='Your username is same as your email-id.Please choose a different username.Also set your timezone.'.$fname;
+				drupal_set_message($message,'warning');					
+				drupal_goto('user/'.$uid.'/edit');					
+			}*/
+			
+		}	
+	
+		if($op=='insert') {
+			db_query("INSERT INTO {profile_values} (fid, uid, value) VALUES (%d, %d, '%s')", 1, $edit['uid'], $edit['first-name']);
+			db_query("INSERT INTO {profile_values} (fid, uid, value) VALUES (%d, %d, '%s')", 3, $edit['uid'], $edit['last-name']);
+		}
+	}
+	
+	function user_mail_alter(&$message) {
+ 	 $message['headers']['Content-Type'] = 'text/html; charset=UTF-8; format=flowed';
+	}
+	
+	function booking_add_to_cart($nid,$qty,$data) {
+		$tid=variable_get('trial-id');
+		Global $user;
+		$flag = 0;		
+		$items =uc_cart_get_contents();
+		$tid = variable_get('trial-id');
+		foreach ($items as $item) {
+			if($item->nid==$tid) {
+				$flag = 1;	
+			} 
+		}
+		if($flag==1) {
+			$result[] = array(
+							'success' => FALSE, 
+							'message' => 'You have a trial package in your cart.Cannot buy a trial package with other items.'.l('click here to go to your cart.','cart/'),
+						);
+		}
+			if($nid==$tid) {
+				if(count(uc_cart_get_contents())>0) {
+					$result[] = array(
+						'success' => FALSE, 
+						'message' => 'You already have items in your shopping cart.Cannot buy a trial package with other items in the cart.'.l('click here to go to your cart.','cart/'),
+					);
+				}				
+				else {
+					$uid = $user->uid;
+					$order_id_query = db_query("SELECT order_id from uc_orders where uid=$uid");
+					while ($order_id_array = db_fetch_array($order_id_query)) {
+						$order_id = $order_id_array['order_id'];
+						$prod_nid_query = db_query("SELECT nid from uc_order_products where order_id=$order_id");					
+						while($prod_nid_array = db_fetch_array($prod_nid_query)) {
+							$prod_nid = $prod_nid_array['nid'];
+							if($prod_nid==$tid) {
+								$result[] = array(
+									'success' => FALSE, 
+									'message' => t('Sorry, you have already bought trial package once.'),
+								);
+							}
+							else {
+								$result[] = array (
+									'success' => TRUE,
+								);				
+							}
+						}			
+					}
+				}
+			}												
+		return $result;
+	}
+	
+	function booking_cron() {
+		db_query("Delete from slot_locked where created > UNIX_TIMESTAMP(NOW())+3600");
+	}
+
+	function booking_form_alter(&$form, $form_state, $form_id) {
+		switch ($form_id) {
+			case 'user_register' :
+				$form['first-name'] = array (
+					'#type' => 'textfield',
+					'#title' => 'First Name',
+					'#description' => 'Name as appearing on the website',
+					'#weight' => -50,
+					'#required' => 1,
+				);
+				$form['last-name'] = array (
+					'#type' => 'textfield',
+					'#title' => 'Last Name',
+					'#description' => 'Last Name as appearing on the website',
+					'#weight' => -45,
+					'#required' => 0,
+				);
+				$form['mail']['#weight'] = -40;
+				break;
+		}
+	}
+	
+	function booking_link_alter(&$links, $node, $comment = NULL) {	
+			if($node->type=='blog'){
+				$aid = $node->uid;	
+				$auser = user_load(array(uid=>$aid));				
+				$name = $auser->profile_firstname.' '.$auser->profile_lastname;
+				$links['blog_usernames_blog']['title'] = $name.'\'s blog';
+			}
+	}

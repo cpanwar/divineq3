@@ -23,7 +23,7 @@ function instructor_registration_schema() {
 
 function instructor_registration_install() {
 	drupal_install_schema('instructor_registration');
-	db_query("ALTER TABLE {users} ADD tid int(11)");
+	db_query("ALTER TABLE {users} ADD tid int(11) Default '405'");
 db_query("
 			INSERT INTO `divine_timezone` (`tid`, `short_name`, timezone, `offsettime`, `offsetsign`, `name`)	
 			VALUES
@@ -430,11 +430,13 @@ db_query("
 				('', 'YT', 'Indian/Mayotte', '03:00', '1', 'Indian/Mayotte'),
 				('', 'ZA', 'Africa/Johannesburg', '02:00', '1', 'Africa/Johannesburg'),
 				('', 'ZM', 'Africa/Lusaka', '02:00', '1', 'Africa/Lusaka'),
-				('', 'ZW', 'Africa/Harare', '02:00', '1', 'Africa/Harare')"
+				('', 'ZW', 'Africa/Harare', '02:00', '1', 'Africa/Harare'),
+			        ('', 'UTC', 'UTC', '00:00', '1', 'UTC')"
 		);	
 }
 
 
 function instructor_registration_uninstall() {
+  db_query("ALTER TABLE `users`  DROP `tid`");
   drupal_uninstall_schema('instructor_registration');
 }

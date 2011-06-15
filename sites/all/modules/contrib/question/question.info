@@ -1,0 +1,11 @@
+; $Id: question.info,v 1.2.2.1 2008/10/24 22:57:32 codepoet Exp $
+name = Question
+description = Allows users to ask questions to be answered by site authors.
+core = 6.x
+
+; Information added by drupal.org packaging script on 2010-04-08
+version = "6.x-1.0"
+core = "6.x"
+project = "question"
+datestamp = "1270709108"
+

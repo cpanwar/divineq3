@@ -1,0 +1,118 @@
+<?php
+
+
+/**
+ * Implementation of hook_menu().
+ */
+function publicbookings_free_cache_menu() {
+  $items = array();
+  $items['admin/content/publicbookings/rebuild_cache'] = array(
+    'title'         => t('Rebuild Cache'),
+    'page callback' => 'publicbookings_free_cache_rebuild_cache',
+    'access arguments' => array('administer bookings'),
+  );
+  return $items;
+}
+
+/**
+ * Implementation of hook_form_alter().
+ * Add the free cache settings to the Public Bookings settings form.
+ */
+function publicbookings_free_cache_form_alter( &$form, $form_state, $form_id) {
+  if ( $form_id == 'publicbookings_settings_form' ) {
+    $form['cache'] = array(
+        '#type' =>  'fieldset',
+        '#title'=>  t('Free Cache settings'),
+        '#weight'=> 0,
+      );
+    $form['cache']['enableCache'] = array(
+        '#type'   =>  'checkbox',
+        '#title'  =>  t('Enable the cache of free timeslots'),
+        '#default_value'  => variable_get('bookingsapi_free_cache_enable', TRUE),
+        '#description'    => t('Adds a cache storing available time slots to Bookings API.'.
+                              'This increases load on adding/changing bookings, but eases conflict-checking .'),
+      );
+    $form['cache']['resPerCron'] = array(
+        '#type'   =>  'textfield',
+        '#title'  =>  t('Number of resources recalculated per cron-run'),
+        '#default_value'  => variable_get('bookingsapi_free_cache_resPerCron', 10),
+        '#description'    => t('The number of resources for which the cache of available times is rebuild during each run of cron'),
+      );
+    $form['cache']['maxtime'] = array(
+        '#type'   => 'textfield',
+        '#title'  =>  t('How long in advance to create the free cache. Dont set this to high!'),
+        '#default_value'  => variable_get('bookingsapi_free_cache_maxtime', 12),
+      );
+    module_load_include('module','bookingsapi_free_cache');
+    $form['cache']['unit'] = array(
+        '#type'   => 'select',
+        '#title'  =>  t('Unit for the maximal time'),
+        '#default_value'  => variable_get('bookingsapi_free_cache_unit', BOOKINGSAPI_FREE_CACHE_MONTH),
+        '#options' => array(
+            BOOKINGSAPI_FREE_CACHE_SECOND => t('Seconds'),
+            BOOKINGSAPI_FREE_CACHE_MINUTE => t('Minutes'),
+            BOOKINGSAPI_FREE_CACHE_HOUR   => t('Hours'),
+            BOOKINGSAPI_FREE_CACHE_DAY    => t('Days'),
+            BOOKINGSAPI_FREE_CACHE_MONTH  => t('Months'),
+            BOOKINGSAPI_FREE_CACHE_YEAR   => t('Years'),
+          ),
+      );
+    $form['#submit'][] = 'publicbookings_free_cache_settings_submit';
+  }
+}
+
+/**
+ * Implementation of hook_hook_submit()
+ * Sets the free cache settings.
+ */
+function publicbookings_free_cache_settings_submit($form, &$form_state) {
+  variable_set('bookingsapi_free_cache_enable', (bool) $form_state['values']['enableCache']);
+  variable_set('bookingsapi_free_cache_resPerCron', (int) $form_state['values']['resPerCron']);
+  variable_set('bookingsapi_free_cache_unit', (int) $form_state['values']['unit']);
+  variable_set('bookingsapi_free_cache_maxtime', (int) $form_state['values']['maxtime']);
+
+  if ( $form_state['values']['op'] == 'reset' ) {
+    variable_set('bookingsapi_free_cache_enable', TRUE);
+    variable_set('bookingsapi_free_cache_resPerCron', 10);
+    variable_set('bookingsapi_free_cache_nextCron', 0);
+    module_load_include('module','bookingsapi_free_cache');
+    variable_set('bookingsapi_free_cache_unit', BOOKINGSAPI_FREE_CACHE_MONTH);
+    variable_set('bookingsapi_free_cache_maxtime', 12);
+  }
+}
+
+/**
+ * Add a page to rebuild parts of the free cache.
+ */
+function publicbookings_free_cache_rebuild_cache() {
+  return drupal_get_form('publicbookings_free_cache_rebuild_cache_confirm');
+}
+
+function publicbookings_free_cache_rebuild_cache_confirm(&$form_state) {
+  $form['resource'] = array(
+      '#input' => TRUE,
+      '#process' => array('bookingsapi_resource_select_process'),
+      '#element_validate' => array('bookingsapi_resource_select_validate'),
+      '#bookingsapi_empty' => FALSE,
+      '#bookingsapi_showall' => TRUE,
+      );
+  $desc = t('The Bookings API cache of the selected resource or all resources will be rebuild. This might take several minutes.');
+  return confirm_form($form, t('Rebuild Bookings API cache?'), 'admin/content/publicbookings', $desc, t('Rebuild Cache'));
+}
+
+function publicbookings_free_cache_rebuild_cache_confirm_submit($form, &$form_state) {
+  $form_state['redirect'] = 'admin/content/publicbookings';
+  module_load_include('module','bookingsapi_free_cache');
+  if ( !isset($form_state['values']['resource']) || $form_state['values']['resource'] <= 0 ) {
+    bookingsapi_free_cache_recalculate();
+    drupal_set_message(t('The cache of all resources has been rebuild.'));
+  } else {
+    $res = bookingsapi_resource_load($form_state['values']['resource']);
+    if ( ! $res ) {
+      drupal_set_error(t('Invalid resource given, not rebuilding cache'));
+    } else {
+      bookingsapi_free_cache_recalculate((int)$res->nid);
+      drupal_set_message(t('The cache of resource %name has been rebuild.', array('%name'=>$res->title)));
+    }
+  }
+}

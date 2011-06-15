@@ -1,0 +1,20 @@
+<?php
+
+
+/* Nothing to be seen. This module adds a field to the database, changing it is up to the publicbookings-module */
+
+
+/**
+ * The client skipped the appointment.
+ */
+define('BOOKINGSAPI_APPOINTMENT_FAILED', -1);
+
+/**
+ * The booking is still due or its unknown whether the client appeared.
+ */
+define('BOOKINGSAPI_APPOINTMENT_DUE', 0);
+
+/**
+ * The client kept the appointment.
+ */
+define('BOOKINGSAPI_APPOINTMENT_KEPT', 1);

@@ -1,0 +1,30 @@
+/*
+ * Garland theme forces all elements in the header region to be inline.
+ * We fix this with the extra #header-region definition
+ */
+
+.rotor-items,
+#header-region .rotor-items {
+  display:block;
+  position: relative;
+}
+
+.rotor-items {
+  overflow:hidden;
+}
+
+.rotor-tab:hover {
+  cursor:pointer;
+}
+
+.rotor-tab.selected {
+  font-weight:bold;
+}
+
+.rotor-content {
+}
+
+.rotor-content-detail {
+  padding: 0;
+  margin: 0;
+}

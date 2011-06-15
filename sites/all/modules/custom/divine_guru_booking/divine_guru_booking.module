@@ -96,6 +96,16 @@ function divine_guru_booking_menu() {
 
 
 /**
+ * Implementation of hook_init().
+ */
+function divine_guru_booking_init(){
+  //SET DEFAULT TIMEZONE TO UTC
+  date_default_timezone_set("UTC");
+  //CLEAN (ERASE) THE OUTPUT BUFFER AND TURN OFF OUTPUT BUFFERING
+  ob_end_clean();
+}
+
+/**
  * This function is used for checking whether this user bought any packages or not
  */
 function check_user_packages(){
@@ -150,7 +160,7 @@ function check_package_class_limit($packageid,$validationDate){
 
  $query = "select * from {divine_user_package_status} where packageid=%d and uid=%d";
  $db_result=db_query($query,$packageid,$uid);
- $classes_left = $packageClasses ; $expiry_timestamp = 0;
+ $classes_left = $packageClasses ; $expiry_timestamp = strtotime($validationDate);
  while ($row = db_fetch_object($db_result)) {
      $classes_left = $row->classes_left;
      $expiry_timestamp = $row->expiry_timestamp;
@@ -160,9 +170,11 @@ function check_package_class_limit($packageid,$validationDate){
  if( $classes_left == 0 ){
    return 2;
  }
+ 
+ $vdate = strtotime($validationDate);
 
- $timestamp = strtotime("+".$packageValidity." days",strtotime($validationDate));
- if($timestamp < $expiry_timestamp){
+ $timestamp = strtotime("+".$packageValidity." days",$expiry_timestamp);
+ if($vdate > $timestamp){
    return 3;
  }
  
@@ -187,7 +199,7 @@ function getPackageUsedDetails($packageid,$currentDate){
  
  $query = "select * from {divine_user_package_status} where packageid=%d and uid=%d";
  $db_result=db_query($query,$packageid,$uid);
- $classes_left = $packageClasses ; $expiry_timestamp = 0;
+ $classes_left = $packageClasses ; $expiry_timestamp = strtotime($currentDate);
  while ($row = db_fetch_object($db_result)) {
      $classes_left = $row->classes_left;
      $expiry_timestamp = $row->expiry_timestamp;
@@ -201,7 +213,7 @@ function getPackageUsedDetails($packageid,$currentDate){
      $isTrial = $row->cnt;
  }
 
- $daysLeft = (strtotime("+".$packageValidity." days",$validationDate)-strtotime($validationDate))/(24*60*60);
+ $daysLeft = (strtotime("+".$packageValidity." days",$expiry_timestamp)-strtotime($currentDate))/(24*60*60);
  $returnString = '<b>Validity : '.$packageValidity.' days , Remaining : '.$daysLeft.' days';
  //$returnString .= '<br/>';
  $returnString .= '&nbsp;&nbsp;Live sessions : '.$packageClasses.' , Remaining : '.$classes_left.'</b>';
@@ -502,6 +514,8 @@ function fetch_search_criteria() {
    /*HTML structure for "confirming"*/
    $output .='<tr id="confirmTRId1" style="display:none">
                 <td colspan="3" align="left" width="100%">
+		 <table border="0" cellpadding="0" cellspacing="0" class="popups">
+		 <tr><td>
 		 <table id="scheduleTable" border="1" cellpadding="0" cellspacing="0">
 		  <tr><td colspan="4" align="4"><b>Confirm Scheduled Classes</b></td></tr>
 		  <tr>
@@ -510,6 +524,9 @@ function fetch_search_criteria() {
 		   <td width="10%" align="center">Edit</td>
 		   <td width="10%" align="center">Delete</td>
                   </tr>
+		 </table>
+		 </td>
+		 </tr>
 		 </table>
 		</td>
 	     </tr>';
@@ -750,6 +767,7 @@ function check_guru_availability(){
   }
 
   $currentDate=date('Y-m-d');
+  /*
   $returnValue = check_package_class_limit($packageid,$currentDate);
   
   if($returnValue == '-1'){
@@ -765,6 +783,7 @@ function check_guru_availability(){
   else if($returnValue == '3'){
     die("Validity for this package is expired.");
   }
+  */
 
   $dataarray=trim($_POST['arr']);
 
@@ -776,6 +795,22 @@ function check_guru_availability(){
   $cdate=trim($key_array[3]);
   $cdateArray=explode('/',$cdate);
   $cdate=$cdateArray[2].'-'.$cdateArray[0].'-'.$cdateArray[1];
+
+  $returnValue = check_package_class_limit($packageid,$cdate);
+  
+  if($returnValue == '-1'){
+    die("This package is disabled.");
+  }
+
+  if($returnValue == '0'){
+    die("Validity or live session is not defined for this package.\nPlease contact administrator.");
+  }
+  else if($returnValue == '2'){
+    die("You have used all classes for this package.");
+  }
+  else if($returnValue == '3'){
+    die("Class date is beyond the validity period of the selected package.");
+  }
 
   date_default_timezone_set("UTC");
 
@@ -1000,6 +1035,7 @@ if($ebid!=''){
 else{  // check package validtity and class limit during addition of new records
 
   $currentDate=date('Y-m-d');
+  /*
   $returnValue = check_package_class_limit($packageId,$currentDate);
   
   if($returnValue == '-1'){
@@ -1018,7 +1054,8 @@ else{  // check package validtity and class limit during addition of new records
   else if($returnValue == '3'){
     echo 'err:1!$@$!*!$@$!err_type:7!$@$!*!$@$!Validity for this package is expired.'; 
     return;
-  } 
+  }
+  */
 }
 
 
@@ -1108,6 +1145,27 @@ if($isTrialClassCount==0){
    $classDate=trim($tArray[3]);
    $classDateArray=explode('/',$classDate);
    $classDate=$classDateArray[2].'-'.$classDateArray[0].'-'.$classDateArray[1];
+
+
+   $returnValue = check_package_class_limit($packageId,$classDate);
+  
+   if($returnValue == '-1'){
+    echo "err:1!$@$!*!$@$!err_type:7!$@$!*!$@$!This package is disabled."; 
+    return;
+   }
+
+   if($returnValue == '0'){
+    echo "err:1!$@$!*!$@$!err_type:7!$@$!*!$@$!Validity or live session is not defined for this package.\nPlease contact administrator."; 
+    return;
+   }
+   else if($returnValue == '2'){
+    echo 'err:1!$@$!*!$@$!err_type:7!$@$!*!$@$!You have used all classes for this package.'; 
+    return;
+   }
+   else if($returnValue == '3'){
+    echo 'err:1!$@$!*!$@$!err_type:7!$@$!*!$@$!Class date is beyond the validity period of the selected package.'; 
+    return;
+   }
 
 
    /**DO NOT SAVE TIME WHICH IS SMALLER THAN CURRENT TIME**/
@@ -1433,7 +1491,7 @@ function show_scheduled_classes($mode=1){
   $i=1;
   while ($links = db_fetch_object($query_result)) {
      $flag=1;
-     $data = 'With Guru ';
+     $data = 'With Teacher ';
      $userArray=user_load($links->gid);
      $data .= $userArray->profile_inst_fname.' '.$userArray->profile_inst_lname;
      if($mode!=1){
@@ -1968,33 +2026,30 @@ function fetch_guru_profile(){
    $userArray->profile_inst_teaching_exp = trim($userArray->profile_inst_teaching_exp)!=''?trim($userArray->profile_inst_teaching_exp).' years':'---';
 
   $profileString =
-  '<table border="0" cellpadding="0" cellspacing="0">
+  '<table border="0" cellpadding="0" cellspacing="0" class="popups">
   <tr>
    <td align="left"><h1>Profile of '.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.'</h1></td>
   </tr>
    <tr>
     <td>
-     <table border="1" cellpadding="0" cellspacing="0">
+     <table border="0" cellpadding="0" cellspacing="0">
        <tr>
-         <td rowspan="2" width="15%">'.$profile_image.'</td>
+         <td rowspan="2" width="15%" align="center" valign="middle">'.$profile_image.'</td>
          <td width="11%">Name:</td>
-         <td>'.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.'</td>
+         <td colspan="2">'.$userArray->profile_inst_fname.' '.$userArray->profile_inst_lname.'</td>
        </tr>
        <tr>
         <td>DOB:</td>
-        <td>'.$dob.'</td>
+        <td colspan="2">'.$dob.'</td>
        </tr>
        <tr>
         <td>About Me:</td>
-        <td colspan="2" style="word-break:break-all; word-wrap: break-word;">
+        <td colspan="3" style="word-break:break-all; word-wrap: break-word;">
 	  <div id="code">'.$userArray->profile_inst_desc.'</div>
 	</td>
        </tr>
        <tr>
-   <td colspan="3">
-    <table border="1" cellpadding="0" cellspacing="0" width="100%">
-	 <tr>
-	  <td>Certifications:</td>
+         <td style="border-width:0px;">Certifications:</td>
 	  <td colspan="3">'.$userArray->profile_inst_certification.'</td>
 	 </tr>
 	 <tr>
@@ -2002,10 +2057,7 @@ function fetch_guru_profile(){
 	  <td>'.$userArray->profile_inst_yoga_style.'</td>
 	  <td>Teaching Experience:</td>
 	  <td>'.$userArray->profile_inst_teaching_exp.'</td>
-	 </tr>
-	</table>
-	</td>
-   </tr>
+      </tr>
       </table>
 	</td>
    </tr>

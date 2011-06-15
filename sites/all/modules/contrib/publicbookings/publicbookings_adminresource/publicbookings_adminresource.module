@@ -1,0 +1,125 @@
+<?php
+
+
+/**
+ * Implementation of hook_perm.
+ *
+ * Provides a new permission that allows users to book a restricted resource.
+ */
+function publicbookings_adminresource_perm() {
+  return array('book restricted resources');
+}
+
+/**
+ * Checks wether the current user has the privileges to book restricted resources.
+ * 
+ * @return bool TRUE if the user is allowed to book restricted resources.
+ */
+function publicbookings_adminresource_access() {
+  return user_access('administer bookings') || user_access('book restricted resources');
+}
+
+/**
+ * Tests wether the current resoruce is restricted.
+ * @param node $resource Node to be checked
+ * @return bool TRUE if the resource is restricted.
+ */
+function publicbookings_adminresource_is_restricted( $resource ) {
+  return $resource->field_ba_restricted[0]['value'] == 'Restricted';
+}
+
+/**
+ * Returns true if the current user is allowed to book the given resource.
+ * @param node $resource Node to be checked
+ * @return bool TRUE if the resource can be booked.
+ */
+function publicbookings_adminresource_can_book( $resource ) {
+  return ! publicbookings_adminresource_is_restricted($resource) || publicbookings_adminresource_access();
+}
+
+/**
+ * Implementation of hook_bookingsapi_conflict_check from Bookings API.
+ *
+ * Allows to check for conflicts using the cache of free resources.
+ */
+function publicbookings_adminresource_conflict_check( $op, &$record, &$config ) {
+  // We only check bookings, availabilities stay unchecked
+  if ( $record['type'] != BOOKINGSAPI_BOOKING ) {
+    return;
+  }
+
+  $resource = bookingsapi_resource_load($record['resource_id']);
+
+  if ( ! publicbookings_adminresource_can_book($resource) ) {
+    $config['abort_after'] = TRUE;
+    $config['status'] = BOOKINGSAPI_CONFLICTS_DISABLED;
+    $config['return'] = BOOKINGSAPI_CONFLICTS_DISABLED;
+    if ( is_array($config['conflict_array']) ) {
+      $config['conflict_array'][] = array();
+    }
+    return;
+  }
+}
+
+/**
+ * Implementation of hook_form_alter.
+ *
+ * Adds the restricted-field to resource-edit-forms.
+ */
+function publicbookings_adminresource_form_alter(&$form, $form_state, $form_id) {
+  if ( $form_id == 'publicbookings_resource_form' || 
+       $form_id == 'publicbookings_resource_edit_form' || 
+       $form_id == 'publicbookings_resource_add_form' ) {
+    $form['restricted'] = array(
+        '#type'           => 'checkboxes',
+        '#title'          => t('Restricted Resource?'),
+        '#description'    => t('If a resource is restricted it can only be booked by users with the correct permissions'),
+        '#options'        => array( 'Restricted' => t('Restricted') ),
+        '#default_value'  => $form_state['resource']->field_ba_restricted[0]['value'],
+        '#weight' => 0,
+        );
+  }
+}
+
+/**
+ * Implementation of hook_bookingsapi_resource.
+ * 
+ * If a resource is given via an array, this add the restricted-field to the resulting
+ * node.
+ */
+function publicbookings_adminresource_bookingsapi_resource($op, &$node, &$config) {
+  if ( ($op == 'insert' || $op == 'update') && is_array($config) && array_key_exists('restricted',$config) ) {
+    $node->field_ba_restricted[0]['value'] = $config['restricted'];
+  }
+  if ( $op == 'list' ) {
+    if ( $config['type'] == 'ajax' ) {
+      $node['restricted'] = $config['element']->field_ba_restricted[0]['value'];
+      $node['bookable'] = publicbookings_adminresource_can_book($config['element']) ? 1 : 0;
+    } else {
+      if ( is_array($node) ) {
+        foreach ( $node as $id => $res  ) {
+          if ( is_object($res) ) {
+            if ( ! publicbookings_adminresource_can_book($res) ) {
+              if ( $config['bookable'] ) {
+                unset($node[$id]);
+              } else {
+                $node[$id]->status = 0;
+              }
+            }
+          } else {
+            if ( $config['bookable'] ) {
+              if ( ! publicbookings_adminresource_can_book(bookingsapi_resource_load($id)) ) {
+                unset($node[$id]);
+              }
+            }
+          }
+        }
+      } else {
+        if ( ! publicbookings_adminresource_can_book($node) ) {
+          $node->status = 0;
+        }
+      }
+    }
+  }
+}
+

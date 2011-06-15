@@ -1,0 +1,113 @@
+
+bug #988716 by kanani: Removed offending <p>-Tags in publicbookings_help
+bug #1000214 by tirsales: Allowed possibility to alter views
+by tirsales: added publicbookings participated
+by tirsales: Added possibility to do AJAX-availability changes
+bug #878678 by rodrigobb: Fixed i18n issue in publicbookings.public.inc
+bug #812150 by tirsales: AJAX availability check should be working now
+by tirsales: Variable-list now localizable
+bug #944694 by tirsales: Added possibility to set 'year range' in bookings
+
+Public Bookings 6.x-3.0-alpha1, 2010-10-15
+------------------------------
+by tirsales: Added publicbookings_adminresource
+by tirsales: Fixed an error in AJAX resource_list
+by tirsales: 'administer booking settings' now may view list of resources
+by tirsales: Added a new user-privilege (administer booking settings) to
+  differate between booking-administration and system-administration
+by tirsales: VIEWS-integration now with resources again
+by tirsales: views_schedules_admin now accepts "end-time" (range) as argument
+by tirsales: view_schedules(_admin) now starts with current bookings
+by tirsales: Minor cosmetic correction
+by tirsales: Added ajax-method to retrieve booking via passphrase
+by tirsales: Fixed a bug in passphrase_confirm
+bug #858312 by rodrigobb: Better bugfix for 'cancel booking'
+by tirsales: Added possibility to display resources as hierarchical list
+  This allows a more client-friendly display of resources in the resource-selection
+by tirsales: Fixed a bug leading after changing the booking_save-spec
+by tirsales: Added list of variables (e.g. for AJAX-Config)
+by tirsales: AJAX-resourcelisting now contains a hook
+by tirsales: Minor additions to AJAX
+by tirsales: Added field 'title'
+by tirsales: Starting work on 'min time before a booking'
+by tirsales: Re-adding schedules_admin
+by tirsales: Minor bug-fixing
+by tirsales: Availabilities now ignore conflicts (but issue a warning)
+by tirsales: Added publicbookings_free_cache
+by tirsales: Lots of changes..
+by tirsales: Continued working on AJAX
+by tirsales: Adding option to pre-select resource for booking
+by tirsales: Fixed number of bugs in AJAX and bookings method
+by tirsales: Reverting to AJAX, rewriting AJAX, fixing VIEWS
+by tirsales: Working on AHAH
+by tirsales: Added menu-item 'Rebuild Booking API cache'
+by tirsales: Continueing rewrite of conflict check
+by tirsales: Removed STRICT availabilites
+by tirsales: Continuing rewrite of resources to node-based version
+by tirsales: Continuing views-changes
+by tirsales: Beginning rewrite of VIEWs
+by tirsales: Fixed access to Bookings API (no more direct access to resources table)
+
+Public Bookings 6.x-1.0-alpha5, 2009-09-24
+------------------------------
+feature #574268 by maruyg, tirsales: Added a view to display all resources
+bug #573612 by maruyg, tirsales: Date of modification now displayed correctly
+bug #573612 by maruyg, tirsales: Date of creation now saved correctly
+bug #573614 by mauryg, tirsales: Phonenumber now up to 20 chars long, too long
+  numbers will display a warning.
+feature #572916 by tirsales: Bookings can now (optionally) be se automatically
+  approved after the email-confirmation
+feature #562398 by tirsales: Bookings can now (optionally) conflict with
+  unconfirmed bookings
+feature #562398 by AndreaD: Admin-Page now displaying unconfirmed bookings
+by #562398: Fixed bug in Public edit menu, led to unconfirmed bookings
+bug by tirsales: Admin Interface does now handle "reset" properly
+bug #549090 by tirsales, webwriter: Fixed defective repeat-settings in
+  Availability
+feature #468168 by tirsales: Text of email-confirmations now configurable
+
+Public Bookings 6.x-1.0-alpha4, 2009-06-26
+------------------------------
+by tirsales: Fixed publicbookings.pot
+bug #497198 by vmalmedy: Fixed semantic bug in publicbookings.public.inc
+bug #497198 by tirsales: Fixed bug with the sending of emails after an
+  request update
+bug #497198 by tirsales: Fixed bug with the display of request-updates
+bug by tirsales: Fixed newly introduced bug in the email notification links.
+
+Public Bookings 6.x-1.0-alpha3, 2009-06-05
+------------------------------
+by tirsales: Fixed translations
+by tirsales: Adds possibility to add an additional reciptient to each mail 
+  send by Public Bookings
+by tirsales: Fixed uninstaller
+by tirsales: Fixed misdesign in the adminstration form
+bug #468166 by ballerjones, tirsales: Fixed bug in the email notification
+  Email now contains correct links w/ and w/o 'clean URL' enabled
+#456406 by tirsales: Added possibility to ommit confirmation email
+bug #463536 by tirsales: Fixed bug in publicbookings_mail
+by tirsales: Fixed (outdated) patch-list in README.txt
+#418804 by tirsales: Added hook_requirements check
+
+Public Bookings 6.x-1.0-alpha2, 2009-04-10
+------------------------------
+by tirsales: Added translations/bookingsapi.pot
+by tirsales: Added link to 'list availabilities' to default admin view on
+  resources
+by tirsales: Fixed issues with bookingsapi-change to bookingsapi_record_types
+  and bookingsapi_record_status
+#418802 by tirsales: Fixed incorrect display on settings page
+by tirsales: Fixed some coder-issues in publicbookings.module
+#421706 by tirsales: Fixed saving of 'repeat' settings
+by tirsales: Added update-method from ALPHA1 and DEV
+#343185 by kenorb: Changed illegal call-by-reference
+#343185 by tirsales: Fixed bug in publicbookings_conflict_check
+#317829 by tirsales: Fixed missing parameter and wrong call to Bookings API
+#343195 by tirsales: Added a single documentation line to clarify the need to 
+  add at least one resource
+by c.lam, dwees: Multiple changes
+
+
+Public Bookings 6.x-1.0-alpha1, 2008-07-08
+------------------------------
+

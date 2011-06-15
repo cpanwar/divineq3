@@ -1,0 +1,5 @@
+@CHARSET "UTF-8";
+
+.container-inline-date div {
+  display: inline;
+}

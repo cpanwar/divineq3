@@ -1,0 +1,11 @@
+name = Smartqueue per User
+description = Provides a Nodequeue for users of one or more specified roles.
+core = 6.x
+package = Nodequeue
+dependencies[] = nodequeue
+; Information added by drupal.org packaging script on 2011-02-25
+version = "6.x-1.x-dev"
+core = "6.x"
+project = "smartqueue_users"
+datestamp = "1298620227"
+

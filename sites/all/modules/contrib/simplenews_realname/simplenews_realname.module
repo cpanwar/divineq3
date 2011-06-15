@@ -1,0 +1,523 @@
+<?php
+// $Id: simplenews_realname.module,v 1.1.2.9 2010/11/11 19:29:04 sgabe Exp $
+
+/**
+ * @file
+ * Alter the newsletter subscription process to make personal newsletters.
+ */
+
+/**
+ * Implementation of hook_help().
+ */
+function simplenews_realname_help($path, $arg) {
+  switch ($path) {
+    case 'admin/help#simplenews_realname':
+      $help = "<p>". t('Simplenews RealName allows you to send personalized newsletters with the Simplenews module by collecting the name of the subscribers, which will be available in the messages as token.') ."</p>";
+      return $help;
+  }
+}
+
+/**
+ * Implementation of hook_nodeapi().
+ */
+function simplenews_realname_nodeapi(&$node, $op, $teaser, $page) {
+  switch ($op) {
+    case 'alter':
+      // Don't replace the tokens when node alter is called by simplenews_mail.
+      if (!isset($node->simplenews_mail)) {
+        global $user;
+        $context['node'] = $node;
+        $realname = _simplenews_realname_get_realname($user->mail);
+        if (isset($node->body)) {
+          $node->body = strtr($node->body, array('!subscriber_name' => $realname));
+        }
+        if (isset($node->teaser)) {
+          $node->teaser = strtr($node->teaser, array('!subscriber_name' => $realname));
+        }
+      }
+      break;
+  }
+}
+
+/**
+ * Implementation of hook_user().
+ */
+function simplenews_realname_user($op, &$edit, &$account, $category = NULL) {
+  if ($op == 'after_update' && module_exists('realname') && variable_get('simplenews_sync_account', TRUE)) {
+    _simplenews_realname_set_realname($account->mail, $account->realname);
+  }
+}
+
+/**
+ * Implementation of hook_form_alter().
+ */
+function simplenews_realname_form_alter(&$form, $form_state, $form_id) {
+  global $user;
+  // Add textfield for real name to subscription forms.
+  if (strpos($form_id, 'simplenews_block_form') !== FALSE || $form_id == 'simplenews_subscription_manager_form') {
+    $realname_field = array(
+      '#type' => 'textfield',
+      '#title' => t('Name'),
+      '#size' => 20,
+      '#maxlength' => 255,
+      '#required' => TRUE,
+      '#default_value' => ($user->uid) ? _simplenews_realname_get_realname($user->mail) : '',
+    );
+  }
+  // Subscription blocks.
+  if (strpos($form_id, 'simplenews_block_form') !== FALSE) {
+    if (!simplenews_user_is_subscribed($user->mail, $form['#tid'])) {
+      $form['realname'] = $realname_field;
+      $form['realname']['#weight'] = -1;
+      // Use Chaos tool suite's dependent tool to hide the "Name" field on unsubscription.
+      if (module_exists('ctools')) {
+        ctools_include('dependent');
+        $form['realname']['#process'] = array('ctools_dependent_process');
+        $form['realname']['#dependency'] = array('radio:action' => array('subscribe'));
+      }
+      // Add after_build callback to skip "Name" validation on unsubscription.
+      $form['#after_build'] = array('simplenews_realname_block_form_after_build');
+    }
+    // Make sure our submit callback executes first.
+    array_unshift($form['#submit'], 'simplenews_realname_block_form_submit');
+  }
+  switch ($form_id) {
+    // Subscriptions list.
+    case 'simplenews_subscription_admin':
+        // Table header. Used as tablesort default.
+        $header = array(
+          array('data' => t('Email'), 'field' => 'ss.mail', 'sort' => 'asc'),
+          array('data' => t('Username'), 'field' => 'u.name'),
+          array('data' => t('Real name'), 'field' => 'sr.realname'),
+          array('data' => t('Status'), 'field' => 'ss.activated'),
+          t('Operations')
+        );
+        // Data collection with filter and sorting applied.
+        $filter = simplenews_build_subscription_filter_query();
+        $query = '
+          SELECT DISTINCT ss.*, u.name, sr.realname
+          FROM {simplenews_subscriptions} ss
+          LEFT JOIN {users} u ON ss.uid = u.uid
+          LEFT JOIN {simplenews_realname} sr ON ss.mail = sr.mail
+          INNER JOIN {simplenews_snid_tid} s ON ss.snid = s.snid
+          '. $filter['where'];
+        // $count_query used to count distinct records only.
+        $count_query = preg_replace('/SELECT.*\s*FROM /', 'SELECT COUNT(DISTINCT ss.mail) FROM ', $query);
+        $query .= tablesort_sql($header);
+        $result = pager_query($query, 30, 0, $count_query);
+        // Clear the current state to be able to ordering the table fields.
+        unset($form['admin']['mail'], $form['admin']['name'], $form['admin']['status'], $form['admin']['operations']);
+        $snids = array();
+        // Subscription table and table pager.
+        while ($subscription = db_fetch_object($result)) {
+          $snids[$subscription->snid] = '';
+          $form['admin']['mail'][$subscription->snid] = array('#value' => $subscription->mail);
+          $form['admin']['name'][$subscription->snid] =  array('#value' => isset($subscription->uid) ? l($subscription->name, 'user/'. $subscription->uid) : $subscription->name);
+          $form['admin']['realname'][$subscription->snid] = array('#value' => $subscription->realname);
+          $form['admin']['status'][$subscription->snid] = array('#value' => theme('simplenews_status', $subscription->activated, 'activated'));
+          $form['admin']['operations'][$subscription->snid] = array('#value' => l(t('edit'), 'admin/content/simplenews/users/edit/'. $subscription->snid, array(), drupal_get_destination()));
+        }
+        $form['admin']['snids'] = array('#type' => 'checkboxes', '#options' => $snids);
+        break;
+    // Subscription settings.
+    case 'simplenews_admin_settings_subscription':
+        $form['simplenews_subscription']['account']['simplenews_sync_account']['#description'] .= ' '. t('<em>Note:</em> If checked, when accounts are updated, the subscriber\'s real name with the same email address will be updated.');
+        $form['simplenews_subscription']['subscription_mail']['#description'] .= ' '. t('The <strong>Simplenews RealName</strong> module is enabled, so you may use !subscriber_name (the real name of the subscriber).');
+        break;
+    // Mass subscribe.
+    case 'simplenews_subscription_list_add':
+        unset($form['emails']);
+        $form['items'] = array(
+          '#type' => 'textarea',
+          '#title' => t('Subscription items'),
+          '#cols' => 60,
+          '#rows' => 5,
+          '#weight' => 0,
+          '#description' => t('One subscription item per each line. Email addresses and names must be separated by semicolon. <strong>Example</strong>: John Doe;email@example.com'),
+        );
+        $form['#submit'] = array('simplenews_realname_subscription_list_add_submit');
+        break;
+    // Mass unsubscribe.
+    case 'simplenews_subscription_list_remove':
+        $form['#submit'][] = 'simplenews_realname_subscription_list_remove_submit';
+        break;
+    // Export.
+    case 'simplenews_subscription_list_export':
+        $form['#after_build'] = array('simplenews_realname_admin_export_after_build');
+        break;
+    // Subscription manager.
+    case 'simplenews_subscription_manager_form':
+        $form['subscriptions']['realname'] = $realname_field;
+        // Add after_build callback to skip "Name" validation on unsubscription.
+        $form['#after_build'] = array('simplenews_realname_subscription_manager_form_after_build');
+        // Make sure our submit callback executes first.
+        array_unshift($form['#submit'], 'simplenews_realname_subscription_manager_form_submit');
+        break;
+    // Node edit form.
+    case 'simplenews_node_form':
+        $form['body_field']['body']['#description'] .= ' '. t('The <strong>Simplenews RealName</strong> module is enabled, so you may use !subscriber_name (the real name of the subscriber) in your newsletters.');
+        break;
+    // Delete multiple subscriptions.
+    case 'simplenews_subscription_multiple_delete_confirm':
+        // Make sure our submit callback executes first.
+        array_unshift($form['#submit'], 'simplenews_realname_subscription_multiple_delete_confirm_submit');
+        break;
+    // Removal confirmation.
+    case 'simplenews_confirm_removal_form':
+        $form['#submit'][] = 'simplenews_realname_confirm_removal_form_submit';
+        break;
+  }
+}
+
+/**
+ * Menu callback: Export names and email address of subscriptions.
+ */
+function simplenews_realname_admin_export_after_build($form, $form_element) {
+  if (isset($form_element['values']['op']) && $form_element['values']['op'] == t('Export')) {
+    $states = array_filter($form_element['values']['states']);
+    $newsletters = array_filter($form_element['values']['newsletters']);
+
+    // Build where clause for active/inactive state and newsletter selection.
+    if (isset($states['active'])) {
+      $where[] = 's.activated = 1';
+    }
+    if (isset($states['inactive'])) {
+      $where[] = 's.activated = 0';
+    }
+    $where = isset($where) ? implode(' OR ', $where) : NULL;
+    if ($tree = taxonomy_get_tree(variable_get('simplenews_vid', ''))) {
+      foreach ($tree as $newsletter) {
+        if (isset($newsletters[$newsletter->tid])) {
+          $where_tid[] = 't.tid = '. $newsletter->tid;
+        }
+      }
+    }
+    $where_tid = isset($where_tid) ? implode(' OR ', $where_tid) : NULL;
+
+    // Get subscription data
+    if (isset($where) && isset($where_tid)) {
+      $query = '
+        SELECT DISTINCT r.realname, s.mail
+        FROM {simplenews_realname} r
+        INNER JOIN {simplenews_subscriptions} s ON r.mail = s.mail
+        INNER JOIN {simplenews_snid_tid} t ON s.snid = t.snid
+        WHERE ('. $where .') AND ('. $where_tid .')';
+      $result = db_query($query);
+      while ($item = db_fetch_array($result)) {
+        $items[] = implode(";", $item);
+      }
+    }
+
+    // Build form field containing exported emails.
+    // The field will be included in the form where at the ['emails'] place holder.
+    if (isset($items)) {
+      $exported_items = implode("\n", $items);
+    }
+    else {
+      $exported_items .= t('No addresses were found.');
+    }
+    $form['emails'] = array(
+      '#type' => 'textarea',
+      '#title' => t('Export results'),
+      '#cols' => 60,
+      '#rows' => 5,
+      '#value' => $exported_items,
+    );
+  }
+  return $form;
+}
+
+/**
+ * Handle submission of the mass subscription form and saving of the data to the database.
+ */
+function simplenews_realname_subscription_list_add_submit($form, &$form_state) {
+  $tree = taxonomy_get_tree(variable_get('simplenews_vid', ''));
+  $added = array();
+  $invalid = array();
+  $checked_newsletters = array_filter($form_state['values']['newsletters']);
+  $langcode = $form_state['values']['language'];
+
+  $items = preg_split("/[\n]/", $form_state['values']['items']);
+  foreach ($items as $subscription) {
+    $subscriptions[] = preg_split("/[;]+/", $subscription);
+  }
+
+  foreach ($subscriptions as $subscription) {
+    $realname = $subscription[0];
+    $mail = trim($subscription[1]);
+    if (valid_email_address($mail)) {
+      foreach ($checked_newsletters as $tid) {
+        $newsletter = taxonomy_get_term($tid);
+        _simplenews_realname_set_realname($mail, $realname);
+        simplenews_subscribe_user($mail, $newsletter->tid, FALSE, $langcode);
+        $added[] = $mail;
+      }
+    }
+    else {
+      $invalid[] = $mail;
+    }
+  }
+
+  if ($added) {
+    $added = implode(", ", $added);
+    drupal_set_message(t('The following addresses were added or updated: %added.', array('%added' => $added)));
+
+    $newsletter_names = array();
+    foreach ($checked_newsletters as $tid) {
+      $newsletter = taxonomy_get_term($tid);
+      $newsletter_names[] = $newsletter->name;
+    }
+    drupal_set_message(t('The addresses were subscribed to the following newsletters: %newsletters.', array('%newsletters' => implode(', ', $newsletter_names))));
+  }
+  else {
+    drupal_set_message(t('No addresses were added.'));
+  }
+
+  if ($invalid) {
+    $invalid = implode(", ", $invalid);
+    drupal_set_message(t('The following addresses were invalid: %invalid.', array('%invalid' => $invalid)), 'error');
+  }
+}
+
+/**
+ * Handle submission of the mass unsubscription form and deleting.
+ */
+function simplenews_realname_subscription_list_remove_submit($form, &$form_state) {
+  $emails = preg_split("/[\s,]+/", $form_state['values']['emails']);
+  foreach ($emails as $mail) {
+    // Prevent mismatches from accidental capitals in mail address.
+    $mail = strtolower(trim($mail));
+    // Get subscription account information.
+    $account = (object) array('mail' => $mail);
+    $subscription = simplenews_get_subscription($account);
+    // Clean up subscription account if user is not subscribed to any newsletter anymore.
+    if (valid_email_address($mail) && !db_result(db_query("SELECT COUNT(*) FROM {simplenews_snid_tid} t WHERE t.snid = %d", $subscription->snid))) {
+      _simplenews_realname_set_realname($mail, '', TRUE);
+    }
+  }
+}
+
+/**
+ * After build callback to skip "Name" validation on unsubscription.
+ */
+function simplenews_realname_block_form_after_build($form, &$form_state) {
+  if ($form_state['submitted'] && $form_state['values']['action'] == 'unsubscribe') {
+    unset($form['realname']['#required']);
+  }
+  return $form;
+}
+
+/**
+ * Handle saving of the additional data to the database.
+ */
+function simplenews_realname_block_form_submit($form, &$form_state) {
+  global $user;
+  $action = $form_state['values']['action'];
+  $realname = $form_state['values']['realname'];
+  $mail = $form_state['values']['mail'];
+  switch ($action) {
+    case 'subscribe':
+      _simplenews_realname_set_realname($mail, $realname);
+      break;
+    case 'unsubscribe':
+      $account = _simplenews_user_load($mail);
+      // If email belongs to the current registered user, don't send confirmation.
+      $confirm = $account->uid && $account->uid == $user->uid ? FALSE : TRUE;
+      // Clean up subscription account if user is not subscribed to any newsletter anymore.
+      if (!$confirm && !db_result(db_query("SELECT COUNT(*) FROM {simplenews_snid_tid} t WHERE t.snid = %d", $subscription->snid))) {
+        _simplenews_realname_set_realname($mail, '', TRUE);
+      }
+      break;
+  }
+}
+
+/**
+ * After build callback to skip "Name" validation on unsubscription.
+ */
+function simplenews_realname_subscription_manager_form_after_build($form, &$form_state) {
+  switch ($form_state['values']['op']) {
+    case t('Unsubscribe'):
+      unset($form['subscriptions']['realname']['#required']);
+      break;
+  } 
+  return $form;
+}
+
+/**
+ * Handle saving of the additional data to the database.
+ */
+function simplenews_realname_subscription_manager_form_submit($form, &$form_state) {
+  $action = $form_state['values']['op'];
+  $realname = $form_state['values']['realname'];
+  $mail = $form_state['values']['mail'];
+  switch ($action) {
+    case t('Subscribe'):
+      _simplenews_realname_set_realname($mail, $realname);
+      break;
+    case t('Unsubscribe'):
+      // If email belongs to the current registered user, don't send confirmation.
+      $confirm = $account->uid && $account->uid == $user->uid ? FALSE : TRUE;
+      // Clean up subscription account if user is not subscribed to any newsletter anymore.
+      if (!$confirm && !db_result(db_query("SELECT COUNT(*) FROM {simplenews_snid_tid} t WHERE t.snid = %d", $subscription->snid))) {
+        _simplenews_realname_set_realname($mail, '', TRUE);
+      }
+      break;
+    case t('Update'):
+      $checked_newsletters = array_filter($form_state['values']['newsletters']);
+      if (!count($checked_newsletters)) {
+        _simplenews_realname_set_realname($mail, '', TRUE);
+      }
+      else {
+        _simplenews_realname_set_realname($mail, $realname);
+      }
+      break;
+  } 
+}
+
+/**
+ * Handle multiple deleting on subscription remove.
+ */
+function simplenews_realname_subscription_multiple_delete_confirm_submit($form, &$form_state) {
+  if ($form_state['values']['confirm']) {
+    foreach ($form_state['values']['snids'] as $snid => $value) {
+      $mail = db_result(db_query('SELECT mail FROM {simplenews_subscriptions} WHERE snid = %d', $snid));
+      _simplenews_realname_set_realname($mail, '', TRUE);
+    }
+  }
+}
+
+/**
+ * Handle deleting on confirmation.
+ */
+function simplenews_realname_confirm_removal_form_submit($form, &$form_state) {
+  $mail = $form_state['values']['mail'];
+  // Prevent mismatches from accidental capitals in mail address.
+  $mail = strtolower(trim($mail));
+  // Get subscription account information.
+  $account = (object) array('mail' => $mail);
+  $subscription = simplenews_get_subscription($account);
+  // Clean up subscription account if user is not subscribed to any newsletter anymore.
+  if (valid_email_address($mail) && !db_result(db_query("SELECT COUNT(*) FROM {simplenews_snid_tid} t WHERE t.snid = %d", $subscription->snid))) {
+    _simplenews_realname_set_realname($mail, '', TRUE);
+  }
+}
+
+/**
+ * Implementation of hook_mail_alter().
+ */
+function simplenews_realname_mail_alter(&$message) {
+  if (strpos($message['id'], 'simplenews') !== FALSE) {
+    $realname = _simplenews_realname_get_realname($message['to']);
+    // Replace token in the message body.
+    $variables = array('!subscriber_name' => $realname);
+    if (is_array($message['body'])) {
+      $message['body']['body'] = strtr($message['body']['body'], $variables);
+    }
+    else {
+      $message['body'] = strtr($message['body'], $variables);
+    }
+    // Replace receiver's name.
+    if (isset($message['params']['context']['account'])) {
+      $message['params']['context']['account']->name = $realname;
+    }
+    // Windows based PHP systems don't accept formatted emails.
+    if (substr(PHP_OS, 0, 3) !== 'WIN') {
+      $message['to'] = '"'. mime_header_encode($realname) .'" <'. $message['to'] .'>';
+    }
+  }
+}
+
+/**
+ * Theme subscription administration overview.
+ */
+function phptemplate_simplenews_subscription_list($form) {
+  // Subscription table header
+  $header = array(
+    theme('table_select_header_cell'),
+    array('data' => t('Email'), 'field' => 'ss.mail', 'sort' => 'asc'),
+    array('data' => t('Username'), 'field' => 'u.name'),
+    array('data' => t('Real name'), 'field' => 'sr.realname'),
+    array('data' => t('Status'), 'field' => 'ss.activated'),
+    t('Operations')
+  );
+
+  // Subscription table
+  $output = drupal_render($form['options']);
+  if (isset($form['mail']) && is_array($form['mail'])) {
+    foreach (element_children($form['mail']) as $key) {
+      $row = array();
+      $row[] = drupal_render($form['snids'][$key]);
+      $row[] = drupal_render($form['mail'][$key]);
+      $row[] = drupal_render($form['name'][$key]);
+      $row[] = drupal_render($form['realname'][$key]);
+      $row[] = drupal_render($form['status'][$key]);
+      $row[] = drupal_render($form['operations'][$key]);
+      $rows[] = $row;
+    }
+  }
+  else  {
+    $rows[] = array(array('data' => t('No subscriptions available.'), 'colspan' => '6'));
+  }
+
+  // Render table header, pager and form
+  $output .= theme('table', $header, $rows);
+  if ($form['pager']['#value']) {
+    $output .= drupal_render($form['pager']);
+  }
+  $output .= drupal_render($form);
+
+  return $output;
+}
+
+/**
+ * Helper function to set the real name of the user.
+ */
+function _simplenews_realname_set_realname($mail, $realname, $remove = FALSE) {
+  if ($remove) {
+    db_query("DELETE FROM {simplenews_realname} WHERE mail = '%s'", $mail);
+  }
+  else {
+    $update = _simplenews_realname_has_realname($mail) ? 'mail' : array();
+    $values = array('mail' => $mail, 'realname' => $realname);
+    drupal_write_record('simplenews_realname', $values, $update);
+  }
+}
+
+/**
+ * Helper function to get the real name of the user.
+ */
+function _simplenews_realname_get_realname($mail) {
+   // Check if we have a name for the given email address.
+  $result = _simplenews_realname_has_realname($mail);
+  // The user is already subscribed once.
+  if ($result) {
+    $realname = $result;
+  }
+  else {
+    $account = user_load(array('mail' => $mail));
+    // Maybe the subscriber is a registered user and has a real name.
+    if ($account && $account->uid != 0) {
+      // Use the name provided by the RealName module if possible.
+      if (module_exists('realname') && isset($account->realname)) {
+        $realname = $account->realname;
+      }
+      // Otherwise use the username as default.
+      else {
+        $realname = $account->name;
+      }
+    }
+    // The subscriber is anonymous after all.
+    else {
+      $realname = t('Subscriber');
+    }
+  }
+
+  return check_plain($realname);
+}
+
+/**
+ * Helper function to determine if the user has a real name.
+ */
+function _simplenews_realname_has_realname($mail) {
+  return db_result(db_query("SELECT realname FROM {simplenews_realname} r WHERE r.mail = '%s'", $mail));
+}

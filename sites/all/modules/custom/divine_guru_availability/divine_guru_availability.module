@@ -1,5 +1,4 @@
 <?php
-
 /**
  * Implementation of hook_perm().
  */
@@ -67,6 +66,16 @@ function divine_guru_availability_menu() {
 	);
 
   return $items;
+}
+
+/**
+ * Implementation of hook_init().
+ */
+function divine_guru_availability_init(){
+  //SET DEFAULT TIMEZONE TO UTC
+  date_default_timezone_set("UTC");
+  //CLEAN (ERASE) THE OUTPUT BUFFER AND TURN OFF OUTPUT BUFFERING
+  ob_end_clean();
 }
 
 function enter_availability() {
@@ -172,6 +181,9 @@ function enter_availability_form($month_counter=0,$error='') {
     
     $current_date=date("Y-m-01"); //TO START IT FROM 1st DAY OF THE MONTH
     $current_timestamp=strtotime($current_date);
+
+    $current_date_timestamp=strtotime(date('Y-m-d'));
+
     $date=strtotime("+".$month_counter." month",$current_timestamp);
 
     $day   = date('d', $date) ;
@@ -197,7 +209,9 @@ function enter_availability_form($month_counter=0,$error='') {
    $days_in_month = cal_days_in_month(0, $month, $year) ;
    
    $table_string='';
-    $table_string ="<table border='1' width='294'>";
+    $table_string ="<table border='0' cellpadding='0' cellspacing='0' class='popups'>
+                     <tr><td>
+		       <table>";
     $table_string .="<tr><td colspan='7' align='center'><b> $title $year </b></td></tr>";
     /*
     $table_string .= "<tr><td width='42' align='center'>Sun</td><td width='42' align='center'>Mon</td><td 
@@ -226,7 +240,7 @@ function enter_availability_form($month_counter=0,$error='') {
       $tday_num=$day_num;
     }
     $present_timestamp=strtotime($year."-".$month."-".$tday_num);
-    if($present_timestamp >= $current_timestamp ){
+    if($present_timestamp >= $current_date_timestamp ){
       $day_num_string='<a href="javascript:void(0);" title="Click to open time slots information" onclick="centerPopup();loadPopup('.$present_timestamp.');">'.t($day_num).'</a>';
     }
     else{
@@ -246,7 +260,9 @@ function enter_availability_form($month_counter=0,$error='') {
    $day_count++; 
  } 
 
- $table_string .= "</tr></table>";
+ $table_string .= "</tr></table>
+                        </td></tr>
+			     </table>";
 
  $popup_string='<form name="time_slot_form" id="time_slot_form" method="" action="" onsubmit="return false;">
                  <input type="hidden" name="sel_date" id="sel_date" value="" />
@@ -290,6 +306,10 @@ function fetch_availability(){
   return;
  }
  $front_end_date=date("d F,Y",$timestamp);
+
+ $module_path=drupal_get_path('module', 'divine_guru_availability');
+ /*Add css*/
+ drupal_add_css($module_path.'/popup.css','module');
 
  //set timezone to UTC
  date_default_timezone_set("UTC");
@@ -359,7 +379,9 @@ function fetch_availability(){
   $records_per_row=4;
 
   $table_string ='<h1>Select your time slots for '.$front_end_date.'</h1>';
-  $table_string .='<table border="1" cellpadding="0" cellspacing="0">';
+  $table_string .='<table border="0" cellpadding="0" cellspacing="0" class="popups">
+                    <tr><td>
+		         <table>';
   $table_string .='<tr><td colspan="'.$records_per_row.'" align="center"><b>List of time slots</b></td></tr>';
   $table_string .='<tr>';
   $cnt=0;
@@ -429,7 +451,7 @@ function fetch_availability(){
           <input type="submit" value="Save" onclick="saveData();" />
 	  &nbsp;<input type="button" value="Cancel" onclick="disablePopup();" /></td></tr>
 	  <tr><td colspan="'.$records_per_row.'" align="left">* Time slots colored in red are booked by users.</td></tr>';
-      $table_string .='</table>';
+      $table_string .='</table></td></tr></table>';
     }
 
     echo $table_string;
@@ -446,9 +468,13 @@ function fetch_availability(){
  */
 function lastDaysOfWeek($date) {
     $ts = strtotime($date);
+    if(date('w', $ts) == 0){
+      return $date;
+    }
     $start = (date('w', $ts) == 0) ? $ts : strtotime('last sunday', $ts);
     $start_date = date('Y-m-d', $start);
-    return $end_date = date('Y-m-d', strtotime('next saturday', $start));
+    //return $end_date = date('Y-m-d', strtotime('next saturday', $start));
+    return $end_date = date('Y-m-d', strtotime('next sunday', $start));
 }
 
 
@@ -465,7 +491,7 @@ function save_availability(){
   }
 
   if(!check_guru_packages()){
-    echo 'Yoy have not assigned any packages.Please assign at least one package to continue.';
+    echo 'You have not assigned any packages.Please assign at least one package to continue.';
     return;
   }
 
@@ -735,6 +761,11 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
   global $user;
   $uid = $user->uid;
 
+  $module_path=drupal_get_path('module', 'divine_guru_availability');
+  
+  /*Add css file*/
+  drupal_add_css($module_path.'/popup.css','module');
+
   //set timezone to UTC
   date_default_timezone_set("UTC");
   $presentTimeStamp = time();
@@ -813,7 +844,10 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
   $monday_date_timestamp=strtotime($monday_date);
   $sunday_date_timestamp=strtotime($sunday_date);
 
-  $tableString = '<table border="1" cellpadding="0" cellspacing="0">';
+  $tableString  = '<div style="width:735px;overflow:auto">
+                   <table border="0" cellpadding="0" cellspacing="0" class="popups">
+                    <tr><td>';
+  $tableString .= '<table border="0" cellpadding="0" cellspacing="0">';
   $tableString .= '<tr>';
 
   $temp_timestamp=$monday_date_timestamp;
@@ -957,7 +991,7 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
 	    continue;
 	  }
           
-	  $tableString .= '<td '.$style.' align="center">'.$slotname.'</td>';
+	  $tableString .= '<td '.$style.' align="center" nowrap>'.$slotname.'</td>';
           $temp_timestamp=strtotime("+1 day",$temp_timestamp);  
       }
 
@@ -990,7 +1024,7 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
 
   $legendsTable ='<table border="1" cellpadding="0" cellspacing="0" width="100%">
 		   <tr>
-		    <td align="left" colspan="6"><b>Legends : </b></td>
+		    <td align="left" colspan="8"><b>Legends : </b></td>
 		   </tr>
 		   <tr>
 		    <td align="left" style="width:10%"><b>Available :</b></td>
@@ -1005,7 +1039,11 @@ function show_guru_availability_week_format($gid,$week_counter=0,$bookedByUserid
 		  </table>';
 
   $tableString .= '<tr><td colspan="8" align="left">'.$legendsTable.'</td></tr>';
-  $tableString .= '</table>';
+  $tableString .= '</table>
+                 </td>
+	       </tr>
+	     </table>
+	    </div>';
 
   return $navaigation_string.$tableString.$navaigation_string;
 

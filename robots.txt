@@ -16,7 +16,7 @@
 #
 # For syntax checking, see:
 # http://www.sxw.org.uk/computing/robots/check.html
-
+Disallow /
 User-agent: *
 Crawl-delay: 10
 # Directories
@@ -58,3 +58,13 @@ Disallow: /?q=search/
 Disallow: /?q=user/password/
 Disallow: /?q=user/register/
 Disallow: /?q=user/login/
+#Custom QED42
+Disallow: /*?quicktabs_*
+Disallow: /node$
+Disallow: /user$
+Disallow: /*sort=
+Disallow: /search$
+Disallow: /*/feed$
+Disallow: /*/track$
+# If you don't want the bulk of your "recent posts" pages indexed, add this:
+Disallow: /tracker?

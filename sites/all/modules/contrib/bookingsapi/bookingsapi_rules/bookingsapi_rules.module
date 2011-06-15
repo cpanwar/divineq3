@@ -1,0 +1,224 @@
+<?php
+
+
+/*
+ Evaluate or look up which status is handed with record_status_change -> old status or new status?
+ */
+
+/**
+ * Implementation of hook_event_info() from module rules
+ */
+function bookingsapi_rules_event_info() {
+  return array(
+			'bookingsapi_status_changed' => array(
+					'label'     => t('The status of a booking has changed (via an email-confirmation or the admin-menu).'),
+          'module'    => 'Bookings API',
+          'arguments' => array( 
+              'booking'  => array('type' => 'bookingsapi_booking',  'label' => t('Changed booking')),
+              'resource' => array('type' => 'bookingsapi_resource', 'label' => t('Affected Bookings API resource')),
+							'newstat'  => array('type' => 'Number', 'label' => t('New status')),
+            ),
+					'help'		 => t('The booking-object contains the old, unchanged status'),
+			  ),
+ 		  'bookingsapi_booking_added' => array(
+					'label' => t('A new booking has been added.'),
+          'module' => 'Bookings API',
+          'arguments' => array( 
+              'booking'  => array('type' => 'bookingsapi_booking',  'label' => t('Changed booking')),
+              'resource' => array('type' => 'bookingsapi_resource', 'label' => t('Affected Bookings API resource')),
+            ),
+			  ),
+			'bookingsapi_resource_changed' => array(
+					'label' => t('A resource has been changed or a new resource added.'),
+          'module' => 'Bookings API',
+          'arguments' => array( 
+              'resource' => array('type' => 'bookingsapi_resource', 'label' => t('Affected Bookings API resource')),
+            ),
+				),
+			'bookingsapi_booking_changed' => array(
+				  'label'  => t('A booking has been changed or a new booking added (any change excluding the email-confirmation)'),
+          'module' => 'Bookings API',
+          'arguments' => array( 
+              'booking'  => array('type' => 'bookingsapi_booking',  'label' => t('Changed booking')),
+              'resource' => array('type' => 'bookingsapi_resource', 'label' => t('Affected Bookings API resource')),
+            ),
+				),
+		);
+}
+/**
+ * Loads the resource-object corresponding to the given booking
+ */
+function bookingsapi_rules_booking_resource($booking) {
+  return bookingsapi_resource_load($booking->resource_id,TRUE);
+}
+
+/**
+ * Implementation of hook_data_type_info()
+ */
+function bookingsapi_rules_data_type_info() {
+  return array(
+    'bookingsapi_resource' => array(
+      'label'   => t('Bookings API resource'),
+      'class'   => 'bookingsapi_rules_bookingsapi_resource',
+      'savable' => TRUE,
+      'identifiable'  => TRUE,
+      'uses_input_form' => FALSE,
+      'module'  => 'bookingsapi',
+    ),
+    'bookingsapi_booking' => array(
+      'label'   => t('Bookings API booking'),
+      'class'   => 'bookingsapi_rules_bookingsapi_booking',
+      'savable' => TRUE,
+      'identifiable'  => TRUE,
+      'uses_input_form' => FALSE,
+      'module'  => 'bookingsapi',
+    ),
+  );
+}
+
+// We need rules.data_types.inc so that the class rules_data_type is available
+module_load_include('inc','rules','rules.data_types');
+
+/**
+ * Provides a Rules-Datatype for the Bookings API resource dataset
+ */
+class bookingsapi_rules_bookingsapi_resource extends rules_data_type { 
+  function load($resid) {
+    return bookingsapi_resource_load($resid);
+  }
+
+  function get_identifier() {
+    $res = &$this->get();
+    return $res->nid;
+  }
+
+  function save() {
+    $res = &$this->get();
+    return bookingsapi_resource_save($res,TRUE);
+  }
+}
+
+/**
+ * Provides a Rules-Datatype for the Bookings API bookings dataset
+ */
+class bookingsapi_rules_bookingsapi_booking extends rules_data_type {
+  function load($bid) {
+    return bookingsapi_record_load($bid, TRUE);
+  }
+
+  function get_identifier() {
+    $book = &$this->get();
+    return $book->record_id;
+  }
+
+  function save() {
+    $book = &$this->get();
+    return bookingsapi_booking_save($book,TRUE);
+  }
+}
+
+/**
+ * Implementation of hook_bookingsapi_booking
+ */
+function bookingsapi_rules_bookingsapi_booking($op, &$data, $config = NULL) {
+	if (!in_array($op, array('update','insert','delete'))) {
+		return;
+	}
+  $booking = (object) $data; 
+  $resource = bookingsapi_resource_load($booking->resource_id,TRUE);
+	if ($op=='insert') {
+    rules_invoke_event('bookingsapi_booking_added', $booking, $resource);
+	}
+  rules_invoke_event('bookingsapi_booking_changed', $booking, $resource);
+  $booking = (array) $booking;
+  $data = (array) $booking;
+}
+
+/**
+ * Implementation of hook_bookingsapi_record_status
+ */
+function bookingsapi_rules_bookingsapi_record_status($op, &$data, $config = array('status'=>BOOKINGSAPI_STATUS_UNCONFIRMED)) {
+  $booking = (object) $data;
+  $resource = bookingsapi_resource_load($booking->resource_id, TRUE);
+	rules_invoke_event('bookingsapi_status_changed',$booking, $resource, $config['status']);
+  $data = (array) $booking;
+}
+
+/** 
+ * Implementation of hook_bookingsapi_resource
+ */
+function bookingsapi_rules_bookingsapi_resource($op, &$data, $config = NULL) {
+	$resource = (object) $data;
+  if (!in_array($op, array('update','insert','delete'))) {
+		return;
+	}
+	rules_invoke_event('bookingsapi_resource_changed',$resource);
+  $data = $resource;
+}
+
+/**
+ * Implementation of hook_rules_condition_info().
+ */
+function bookingsapi_rules_rules_condition_info() {
+  return array(
+    'bookingsapi_rules_condition_resource' => array(
+      'label'      => t('Compare the affected resource'),
+      'arguments'  => array( 
+        'resource' => array('type' => 'bookingsapi_resource', 'label' => t('Resource')),
+      ),
+      'module'     => 'Bookings API',
+      'help'       => t('Evaluates to TRUE, if the given resource is one of the selected.'),
+    ),
+    'bookingsapi_rules_condition_status_changed' => array(
+      'label'      => t('Compare the changed status of a booking'),
+      'arguments'  => array(
+        'booking'  => array('type' => 'bookingsapi_booking',  'label' => t('Booking')),
+				'newstat'  => array('type' => 'Number', 'label' => t('New status')),
+      ),
+      'module'     => 'Bookings API',
+      'help'       => t('Evaluates to TRUE, if the booking has the selected status.'),
+    ),
+    'bookingsapi_rules_condition_status_unchanged' => array(
+      'label'      => t('Compare the unchanged status of the booking'),
+      'arguments'  => array(
+        'booking'  => array('type' => 'bookingsapi_booking',  'label' => t('Booking')),
+      ),
+      'module'     => 'Bookings API',
+      'help'       => t('Evaluates to TRUE, if the booking has the selected status.'),
+    ),
+    'bookingsapi_rules_condition_priority' => array(
+      'label'      => t('Compare the priority of the booking'),
+      'arguments'  => array(
+        'booking'  => array('type' => 'bookingsapi_booking',  'label' => t('Booking')),
+      ),
+      'module'     => 'Bookings API',
+      'help'       => t('Evaluates to TRUE, if the booking has the selected status.'),
+    ),
+  );
+}
+
+function bookingsapi_rules_condition_resource(&$resource, $settings) {
+  return in_array($resource->resource_id, $settings['resources']);
+}
+
+function bookingsapi_rules_condition_status_changed(&$booking, $newstat, $settings) {
+  return bookingsapi_rules_condition_status($booking, $newstat, $settings);
+}
+
+function bookingsapi_rules_condition_status_unchanged(&$booking, $settings) {
+  return bookingsapi_rules_condition_status($booking, NULL,$settings);
+}
+
+function bookingsapi_rules_condition_status(&$booking, $newstat = NULL, $settings) {
+  if ( is_null($newstat) ) {
+    return in_array($booking->status, $settings['status']);
+  } else {
+    return in_array($newstat, $settings['status']);
+  }
+}
+
+function bookingsapi_rules_condition_priority(&$booking, $settings) {
+  return in_array($booking->priority, $settings['priority']);
+}
+
+module_load_include('inc','bookingsapi_rules','bookingsapi_rules.forms');

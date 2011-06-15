@@ -1,0 +1,16 @@
+<?php
+/**
+ * @file
+ * Bookings API Free Cache Installer / Uninstaller
+ */
+
+/**
+ * Implementation of hook_install().
+ */
+function bookingsapi_direct_button_install() {}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function bookingsapi_direct_button_uninstall() {}
+

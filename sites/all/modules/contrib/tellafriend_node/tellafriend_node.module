@@ -1,0 +1,1036 @@
+<?php
+// $Id: tellafriend_node.module,v 1.7.2.20 2010/08/19 22:13:05 ggaetz Exp $
+
+/**
+ * @file
+ * Tell A Friend Node module
+ *
+ * Tell A Friend node type for creating tell a friend pages
+ *
+ * Written by Glenn Gaetz (glenn@harveymckinnon.com)
+ */
+
+/*
+ * Implementation of hook_perm()
+ */
+function tellafriend_node_perm() {
+  return array('access tellafriend nodes', 'administer tellafriend nodes');
+}
+
+/*
+ * Implementation of hook_node_info()
+ */
+function tellafriend_node_node_info() {
+  return array(
+    'tellafriend_node' => array(
+      'name' => t('Tell A Friend Page'),
+      'module' => 'tellafriend_node',
+      'description' => t("Node type for creating tell a friend pages"),
+      'has_title' => TRUE,
+      'title_label' => t('Title'),
+      'has_body' => TRUE,
+      'body_label' => t('Body'),
+    )
+  );
+}
+
+/*
+ * Implemenation of hook_access()
+ */
+function tellafriend_node_access($op, $node, $account) {
+  if ($op == 'create' || $op == 'update' || $op == 'delete') {
+    return user_access('administer tellafriend nodes', $account);
+  }
+  else if ($op == 'view') {
+    return user_access('access tellafriend nodes', $account);
+  }
+}
+
+/*
+ * Implementation of hook_menu()
+ */
+function tellafriend_node_menu() {
+  $items = array();
+
+  $items['tellafriend_node_plaxo_cb'] = array(
+    'title' => 'Plaxo callback page',
+    'page callback' => 'tellafriend_node_plaxo_cb',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['node/%/results'] = array(
+    'title' => 'Results',
+    'page callback' => 'tellafriend_node_results',
+    'page arguments' => array(1),
+    'access arguments' => array(1),
+    'access callback' => 'tellafriend_node_results_tab_loader',
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  return $items;
+}
+
+function tellafriend_node_results_tab_loader($param) {
+  $node = node_load($param);
+  if (($node->type == 'tellafriend_node')  && user_access('administer tellafriend nodes')) {
+    return TRUE;
+  }
+}
+
+/*
+ * Implementation of hook_validate()
+ */
+function tellafriend_node_validate(&$node, &$form) {
+}
+
+/*
+ * Implementation of hook_load()
+ */
+function tellafriend_node_load($node) {
+  $additions = db_fetch_object(db_query('SELECT
+    tellafriend_node_max_allowed_recipients,
+    tellafriend_node_include_plaxo,
+    tellafriend_node_subject,
+    tellafriend_node_subject_is_editable,
+    tellafriend_node_message,
+    tellafriend_node_message_is_editable,
+    tellafriend_node_message_is_optional,
+    tellafriend_node_message_constant_text,
+    tellafriend_node_show_opt_in,
+    tellafriend_node_opt_in_checked,
+    tellafriend_node_opt_in_text,
+    tellafriend_node_show_opt_out,
+    tellafriend_node_opt_out_checked,
+    tellafriend_node_opt_out_text,
+    tellafriend_node_first_name_is_required,
+    tellafriend_node_last_name_is_required,
+    tellafriend_node_thank_you_page,
+    tellafriend_node_send_multipart_email,
+    tellafriend_node_html_mail_wrapper,
+    tellafriend_node_send_thank_you_email,
+    tellafriend_node_thank_you_email_from,
+    tellafriend_node_thank_you_email_subject,
+    tellafriend_node_thank_you_email_message,
+    tellafriend_node_format_as_ecard,
+    tellafriend_node_ecard_fullsize_image,
+    tellafriend_node_ecard_thumbnail_image,
+    tellafriend_node_ecard_thumbnail_image_width,
+    tellafriend_node_ecard_thumbnail_image_height,
+    tellafriend_node_ecard_link
+    FROM {tellafriend_node_data} WHERE nid = %d', $node->nid));
+  return $additions;
+}
+
+/*
+ * Implementation of hook_insert()
+ */
+function tellafriend_node_insert($node) {
+  $file_dir = variable_get('file_directory_path', 'files');
+  if (isset($_FILES['files']['name']['tellafriend_node_ecard_fullsize_image_field'])) {
+    if ($file = file_save_upload('tellafriend_node_ecard_fullsize_image_field', array(), $file_dir)) {
+      file_set_status($file, 1);
+      drupal_set_message('file successfully uploaded');
+      if (preg_match('/(jpg)|(gif)|(png)$/', $file->destination)) {
+        $node->tellafriend_node_ecard_fullsize_image = $file->destination;
+        $thumbnail = preg_replace('/(\.(jpg)|(gif)|(png))$/', "_thumb$1", $node->tellafriend_node_ecard_fullsize_image);
+        $width = isset($node->tellafriend_node_ecard_thumbnail_image_width) ? $node->tellafriend_node_ecard_thumbnail_image_width : 200;
+        $height = isset($node->tellafriend_node_ecard_thumbnail_image_height) ? $node->tellafriend_node_ecard_thumbnail_image_height : 200;
+        if (image_scale($node->tellafriend_node_ecard_fullsize_image, $thumbnail, $width, $height)) {
+          $node->tellafriend_node_ecard_thumbnail_image = $thumbnail;
+        }
+      }
+      else {
+        drupal_set_message('unsupported file type: ' . $file->filemime);
+      }
+    }
+  }
+
+  db_query("INSERT INTO {tellafriend_node_data} (
+    nid,
+    tellafriend_node_max_allowed_recipients,
+    tellafriend_node_include_plaxo,
+    tellafriend_node_subject,
+    tellafriend_node_subject_is_editable,
+    tellafriend_node_message,
+    tellafriend_node_message_is_editable,
+    tellafriend_node_message_is_optional,
+    tellafriend_node_message_constant_text,
+    tellafriend_node_show_opt_in,
+    tellafriend_node_opt_in_checked,
+    tellafriend_node_opt_in_text,
+    tellafriend_node_show_opt_out,
+    tellafriend_node_opt_out_checked,
+    tellafriend_node_opt_out_text,
+    tellafriend_node_first_name_is_required,
+    tellafriend_node_last_name_is_required,
+    tellafriend_node_thank_you_page,
+    tellafriend_node_send_multipart_email,
+    tellafriend_node_html_mail_wrapper,
+    tellafriend_node_format_as_ecard,
+    tellafriend_node_ecard_fullsize_image,
+    tellafriend_node_ecard_thumbnail_image,
+    tellafriend_node_ecard_thumbnail_image_width,
+    tellafriend_node_ecard_thumbnail_image_height,
+    tellafriend_node_ecard_link,
+    tellafriend_node_send_thank_you_email,
+    tellafriend_node_thank_you_email_from,
+    tellafriend_node_thank_you_email_subject,
+    tellafriend_node_thank_you_email_message
+  )
+    VALUES (
+      %d,
+      %d,
+      %d,
+      '%s',
+      %d,
+      '%s',
+      %d,
+      %d,
+      '%s',
+      %d,
+      %d,
+      '%s',
+      %d,
+      %d,
+      '%s',
+      %d,
+      %d,
+      '%s',
+      %d,
+      '%s',
+      %d,
+      '%s',
+      '%s',
+      %d,
+      %d,
+      '%s',
+      %d,
+      '%s',
+      '%s',
+      '%s'
+    )",
+    $node->nid,
+    $node->tellafriend_node_max_allowed_recipients,
+    $node->tellafriend_node_include_plaxo,
+    $node->tellafriend_node_subject,
+    $node->tellafriend_node_subject_is_editable,
+    $node->tellafriend_node_message,
+    $node->tellafriend_node_message_is_editable,
+    $node->tellafriend_node_message_is_optional,
+    $node->tellafriend_node_message_constant_text,
+    $node->tellafriend_node_show_opt_in,
+    $node->tellafriend_node_opt_in_checked,
+    $node->tellafriend_node_opt_in_text,
+    $node->tellafriend_node_show_opt_out,
+    $node->tellafriend_node_opt_out_checked,
+    $node->tellafriend_node_opt_out_text,
+    $node->tellafriend_node_first_name_is_required,
+    $node->tellafriend_node_last_name_is_required,
+    $node->tellafriend_node_thank_you_page,
+    $node->tellafriend_node_send_multipart_email,
+    $node->tellafriend_node_html_mail_wrapper,
+    $node->tellafriend_node_format_as_ecard,
+    $node->tellafriend_node_ecard_fullsize_image,
+    $node->tellafriend_node_ecard_thumbnail_image,
+    $node->tellafriend_node_ecard_thumbnail_image_width,
+    $node->tellafriend_node_ecard_thumbnail_image_height,
+    $node->tellafriend_node_ecard_link,
+    $node->tellafriend_node_send_thank_you_email,
+    $node->tellafriend_node_thank_you_email_from,
+    $node->tellafriend_node_thank_you_email_subject,
+    $node->tellafriend_node_thank_you_email_message
+    );
+}
+
+/*
+ * Implementation of hook_update()
+ */
+function tellafriend_node_update($node) {
+  $file_dir = variable_get('file_directory_path', 'files');
+  if (isset($_FILES['files']['name']['tellafriend_node_ecard_fullsize_image_field'])) {
+    if ($file = file_save_upload('tellafriend_node_ecard_fullsize_image_field', array(), $file_dir)) {
+      file_set_status($file, 1);
+      drupal_set_message('file successfully uploaded');
+      if (preg_match('/(jpg)|(gif)|(png)$/', $file->destination)) {
+        $node->tellafriend_node_ecard_fullsize_image = $file->destination;
+        $thumbnail = preg_replace('/(\.(jpg)|(gif)|(png))$/', "_thumb$1", $node->tellafriend_node_ecard_fullsize_image);
+        $width = isset($node->tellafriend_node_ecard_thumbnail_image_width) ? $node->tellafriend_node_ecard_thumbnail_image_width : 200;
+        $height = isset($node->tellafriend_node_ecard_thumbnail_image_height) ? $node->tellafriend_node_ecard_thumbnail_image_height : 200;
+        if (image_scale($node->tellafriend_node_ecard_fullsize_image, $thumbnail, $width, $height)) {
+          $node->tellafriend_node_ecard_thumbnail_image = $thumbnail;
+        }
+      }
+      else {
+        drupal_set_message('unsupported file type: ' . $file->filemime);
+      }
+    }
+  }
+
+  db_query("UPDATE {tellafriend_node_data} SET
+    tellafriend_node_max_allowed_recipients = %d,
+    tellafriend_node_include_plaxo = %d,
+    tellafriend_node_subject = '%s',
+    tellafriend_node_subject_is_editable = %d,
+    tellafriend_node_message = '%s',
+    tellafriend_node_message_is_editable = %d,
+    tellafriend_node_message_is_optional = %d,
+    tellafriend_node_message_constant_text = '%s',
+    tellafriend_node_show_opt_in = %d,
+    tellafriend_node_opt_in_checked = %d,
+    tellafriend_node_opt_in_text = '%s',
+    tellafriend_node_show_opt_out = %d,
+    tellafriend_node_opt_out_checked = %d,
+    tellafriend_node_opt_out_text = '%s',
+    tellafriend_node_first_name_is_required = %d,
+    tellafriend_node_last_name_is_required = %d,
+    tellafriend_node_thank_you_page = '%s',
+    tellafriend_node_send_multipart_email = %d,
+    tellafriend_node_html_mail_wrapper = '%s',
+    tellafriend_node_format_as_ecard = %d,
+    tellafriend_node_ecard_fullsize_image = '%s',
+    tellafriend_node_ecard_thumbnail_image = '%s',
+    tellafriend_node_ecard_thumbnail_image_width = %d,
+    tellafriend_node_ecard_thumbnail_image_height = %d,
+    tellafriend_node_ecard_link = '%s',
+    tellafriend_node_send_thank_you_email = %d,
+    tellafriend_node_thank_you_email_from = '%s',
+    tellafriend_node_thank_you_email_subject = '%s',
+    tellafriend_node_thank_you_email_message = '%s'
+    WHERE nid = %d",
+    $node->tellafriend_node_max_allowed_recipients,
+    $node->tellafriend_node_include_plaxo,
+    $node->tellafriend_node_subject,
+    $node->tellafriend_node_subject_is_editable,
+    $node->tellafriend_node_message,
+    $node->tellafriend_node_message_is_editable,
+    $node->tellafriend_node_message_is_optional,
+    $node->tellafriend_node_message_constant_text,
+    $node->tellafriend_node_show_opt_in,
+    $node->tellafriend_node_opt_in_checked,
+    $node->tellafriend_node_opt_in_text,
+    $node->tellafriend_node_show_opt_out,
+    $node->tellafriend_node_opt_out_checked,
+    $node->tellafriend_node_opt_out_text,
+    $node->tellafriend_node_first_name_is_required,
+    $node->tellafriend_node_last_name_is_required,
+    $node->tellafriend_node_thank_you_page,
+    $node->tellafriend_node_send_multipart_email,
+    $node->tellafriend_node_html_mail_wrapper,
+    $node->tellafriend_node_format_as_ecard,
+    $node->tellafriend_node_ecard_fullsize_image,
+    $node->tellafriend_node_ecard_thumbnail_image,
+    $node->tellafriend_node_ecard_thumbnail_image_width,
+    $node->tellafriend_node_ecard_thumbnail_image_height,
+    $node->tellafriend_node_ecard_link,
+    $node->tellafriend_node_send_thank_you_email,
+    $node->tellafriend_node_thank_you_email_from,
+    $node->tellafriend_node_thank_you_email_subject,
+    $node->tellafriend_node_thank_you_email_message,
+    $node->nid
+    );
+  }
+
+/*
+ * Implementation of hook_form()
+ */
+function tellafriend_node_form(&$node) {
+  // The site admin can decide if this node type has a title and body, and how
+  // the fields should be labeled. We need to load these settings so we can
+  // build the node form correctly.
+  $type = node_get_types('type', $node);
+
+  if ($type->has_title) {
+    $form['title'] = array(
+      '#type' => 'textfield',
+      '#title' => check_plain($type->title_label),
+      '#required' => TRUE,
+      '#default_value' => $node->title,
+      '#weight' => -5
+    );
+  }
+
+  if ($type->has_body) {
+    // In Drupal 6, we can use node_body_field() to get the body and filter
+    // elements. This replaces the old textarea + filter_form() method of
+    // setting this up. It will also ensure the teaser splitter gets set up
+    // properly.
+    $form['body_field'] = node_body_field($node, $type->body_label, $type->min_word_count);
+  }
+
+  // Now we define the form elements specific to our node type.
+  $form['#attributes'] = array('enctype' => "multipart/form-data");
+
+  $form['tellafriend_node_max_allowed_recipients'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Max Allowed Recipients'),
+    '#default_value' => isset($node->tellafriend_node_max_allowed_recipients) ? $node->tellafriend_node_max_allowed_recipients : 0,
+    '#description' => t("This is the number of recipients allowed per sender per submission. Enter 0 for unlimited.")
+  );
+  $form['tellafriend_node_include_plaxo'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Include Plaxo contact importer?'),
+    '#default_value' => isset($node->tellafriend_node_include_plaxo) ? $node->tellafriend_node_include_plaxo : 1,
+  );
+  $form['tellafriend_node_subject'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Subject'),
+    '#default_value' => isset($node->tellafriend_node_subject) ? $node->tellafriend_node_subject : '',
+  );
+  $form['tellafriend_node_subject_is_editable'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Subject is editable'),
+    '#default_value' => isset($node->tellafriend_node_subject_is_editable) ? $node->tellafriend_node_subject_is_editable : 1,
+  );
+  $form['tellafriend_node_send_multipart_email'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Send multipart emails (HTML)'),
+    '#default_value' => isset($node->tellafriend_node_send_multipart_email) ? $node->tellafriend_node_send_multipart_email : 0,
+  );
+  $form['tellafriend_node_html_mail_wrapper'] = array(
+    '#type' => 'textarea',
+    '#title' => t('HTML mail wrapper'),
+    '#default_value' => isset($node->tellafriend_node_html_mail_wrapper) ? $node->tellafriend_node_html_mail_wrapper : '<html><head></head><body>%content%</body></html>',
+    '#rows' => 10,
+    '#description' => t("Enter the html content that will surround your message. Use '%content%' to note where the message should be inserted."),
+  );
+  $form['tellafriend_node_message'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Message'),
+    '#default_value' => isset($node->tellafriend_node_message) ? $node->tellafriend_node_message : '',
+    '#rows' => 10,
+  );
+  $form['tellafriend_node_message_is_editable'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Message is editable'),
+    '#default_value' => isset($node->tellafriend_node_message_is_editable) ? $node->tellafriend_node_message_is_editable : 1,
+  );
+  $form['tellafriend_node_message_is_optional'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Message is optional'),
+    '#default_value' => isset($node->tellafriend_node_message_is_optional) ? $node->tellafriend_node_message_is_optional : 0,
+  );
+  $form['tellafriend_node_message_constant_text'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Constant message text'),
+    '#default_value' => isset($node->tellafriend_node_message_constant_text) ? $node->tellafriend_node_message_constant_text : '',
+    '#description' => t('Content that will appear at the bottom of TAF messages. This content will not be editable by users.'),
+  );
+  $form['tellafriend_node_thank_you_email'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Thank you email settings'),
+    '#collapsible' => TRUE,
+    '#collapsed' => !($node->tellafriend_node_send_thank_you_email),
+  );
+  $form['tellafriend_node_thank_you_email']['tellafriend_node_send_thank_you_email'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Send thank you email'),
+    '#default_value' => isset($node->tellafriend_node_send_thank_you_email) ? $node->tellafriend_node_send_thank_you_email : 0,
+    '#description' => t('Send a thank you email to the person sending a tell a friend message.'),
+  );
+  $form['tellafriend_node_thank_you_email']['tellafriend_node_thank_you_email_from'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Thank you email from address'),
+    '#default_value' => isset($node->tellafriend_node_thank_you_email_from) ? $node->tellafriend_node_thank_you_email_from : '',
+    '#description' => t('You may specify an email address to be used as the "from" address'),
+  );
+  $form['tellafriend_node_thank_you_email']['tellafriend_node_thank_you_email_subject'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Thank you email subject'),
+    '#default_value' => isset($node->tellafriend_node_thank_you_email_subject) ? $node->tellafriend_node_thank_you_email_subject : '',
+  );
+  $form['tellafriend_node_thank_you_email']['tellafriend_node_thank_you_email_message'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Thank you email message'),
+    '#default_value' => isset($node->tellafriend_node_thank_you_email_message) ? $node->tellafriend_node_thank_you_email_message : '',
+  );
+  $form['ecard'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Ecard settings'),
+    '#collapsible' => TRUE,
+    '#collapsed' => !($node->tellafriend_node_format_as_ecard),
+  );
+  $form['ecard']['tellafriend_node_format_as_ecard'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Format as ecard'),
+    '#default_value' => isset($node->tellafriend_node_format_as_ecard) ? $node->tellafriend_node_format_as_ecard : 0,
+    '#description' => t('Send this message as an ecard. This will place the image uploaded below into the tell a friend page above the message from the user. If "Send multipart emails" is checked, then the recipient will receive a message with the ecard. If not, then a plain text message will be sent with a link to the ecard on the website.'),
+  );
+  if ($node->tellafriend_node_ecard_thumbnail_image != '') {
+    $form['ecard']['tellafriend_node_ecard_thumbnail_image_display'] = array(
+      '#type' => 'item',
+      '#title' => t('Image'),
+      '#value' => '<div class="tellafriend_node_ecard_thumbnail_image_wrapper"><img src="/' . $node->tellafriend_node_ecard_thumbnail_image . '" alt="Ecard thumbnail image" class="tellafriend_node_ecard_thumbnail_image" /></div>',
+    );
+  }
+  $form['ecard']['tellafriend_node_ecard_fullsize_image_field'] = array(
+    '#type' => 'file',
+    '#title' => t('Attach an ecard image'),
+    '#size' => 40,
+  );
+  $form['ecard']['tellafriend_node_ecard_thumbnail_image_width'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Thumbnail width'),
+    '#size' => 8,
+    '#default_value' => isset($node->tellafriend_node_ecard_thumbnail_image_width) ? $node->tellafriend_node_ecard_thumbnail_image_width : 200,
+  );
+  $form['ecard']['tellafriend_node_ecard_thumbnail_image_height'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Thumbnail height'),
+    '#size' => 8,
+    '#default_value' => isset($node->tellafriend_node_ecard_thumbnail_image_height) ? $node->tellafriend_node_ecard_thumbnail_image_height : 200,
+  );
+  $form['ecard']['tellafriend_node_ecard_fullsize_image'] = array(
+    '#type' => 'value',
+    '#value' => $node->tellafriend_node_ecard_fullsize_image,
+  );
+  $form['ecard']['tellafriend_node_ecard_thumbnail_image'] = array(
+    '#type' => 'value',
+    '#value' => $node->tellafriend_node_ecard_thumbnail_image,
+  );
+  $form['ecard']['tellafriend_node_ecard_link'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Ecard link'),
+    '#description' => t('If there is a value in this field, it will be used as the destination link of the ecard image.'),
+    '#default_value' => isset($node->tellafriend_node_ecard_link) ? $node->tellafriend_node_ecard_link : '', 
+  );
+  $form['tellafriend_node_show_opt_in'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Include Opt-In'),
+    '#default_value' => isset($node->tellafriend_node_show_opt_in) ? $node->tellafriend_node_show_opt_in : 1,
+  );
+  $form['tellafriend_node_opt_in_checked'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Opt-In checked'),
+    '#default_value' => isset($node->tellafriend_node_opt_in_checked) ? $node->tellafriend_node_opt_in_checked : 0,
+  );
+  $form['tellafriend_node_opt_in_text'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Opt-In Text'),
+    '#default_value' => isset($node->tellafriend_node_opt_in_text) ? $node->tellafriend_node_opt_in_text : '',
+  );
+  $form['tellafriend_node_show_opt_out'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Include Opt-Out'),
+    '#default_value' => isset($node->tellafriend_node_show_opt_out) ? $node->tellafriend_node_show_opt_out : 0,
+  );
+  $form['tellafriend_node_opt_out_checked'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Opt-Out checked'),
+    '#default_value' => isset($node->tellafriend_node_opt_out_checked) ? $node->tellafriend_node_opt_out_checked : 0,
+  );
+  $form['tellafriend_node_opt_out_text'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Opt-Out Text'),
+    '#default_value' => isset($node->tellafriend_node_opt_out_text) ? $node->tellafriend_node_opt_out_text : '',
+  );
+  $form['tellafriend_node_first_name_is_required'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('First name field is required'),
+    '#default_value' => isset($node->tellafriend_node_first_name_is_required) ? $node->tellafriend_node_first_name_is_required : 1,
+  );
+  $form['tellafriend_node_last_name_is_required'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Last name field is required'),
+    '#default_value' => isset($node->tellafriend_node_last_name_is_required) ? $node->tellafriend_node_last_name_is_required : 1,
+  );
+  $form['tellafriend_node_thank_you_page'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Destination thank you page'),
+    '#default_value' => isset($node->tellafriend_node_thank_you_page) ? $node->tellafriend_node_thank_you_page : '',
+    '#description' => t('The page to redirect users to after they complete the tell a friend form. Defaults to the front page.'),
+  );
+  return $form;
+}
+
+/*
+ * Implementation of hook_view()
+ */
+function tellafriend_node_view($node, $teaser = FALSE, $page = FALSE) {
+  $node = node_prepare($node, $teaser);
+  //if the user is viewing an archived message
+  if (arg(2) == 'message' && $message_id = arg(3)) {
+    if (is_numeric($message_id)) {
+      $result = db_query("SELECT message, subject FROM {tellafriend_node_results} WHERE message_id = %d", $message_id);
+      if ($message = db_fetch_array($result)) {
+        $node->content = array();
+        $node->content['message'] = array(
+          '#value' => theme('tellafriend_node_archived_message', $message['message']),
+          '#weight' => 1,
+        );
+        $node->title = ($message['subject']);
+        drupal_set_title($node->title);
+        return $node;
+      }
+      else {
+        drupal_set_message(t("Sorry! Your message can't be found!"), 'error');
+      }
+    }
+  }
+  if ($node->tellafriend_node_include_plaxo == TRUE) {
+    $scripts = '<script type="text/javascript" src="http://www.plaxo.com/css/m/js/util.js"></script>';
+    $scripts .= '<script type="text/javascript" src="http://www.plaxo.com/css/m/js/basic.js"></script>';
+    $scripts .= '<script type="text/javascript" src="http://www.plaxo.com/css/m/js/abc_launcher.js"></script>';
+    drupal_set_html_head($scripts);
+  }
+
+  $node->content['tellafriend_node_page_form'] = array(
+    '#value' => drupal_get_form('tellafriend_node_page_form', $node),
+    '#weight' => 1,
+  );
+  return $node;
+}
+
+/* 
+ * Implementation of hook_theme()
+ */
+function tellafriend_node_theme($existing, $type, $theme, $path) {
+  return array(
+    'tellafriend_node_archived_message' => array(
+      'arguments' => array('message' => NULL),
+    ),
+    'tellafriend_node_link' => array(
+      'arguments' => array('nid' => NULL),
+    ),
+  );
+}
+
+/*
+ * Theme function for display of link to taf submission page from archived message page
+ */
+function theme_tellafriend_node_link($nid = NULL) {
+  if ($nid > 0) {
+    global $base_url;
+    $output = '<div class="tellafriend_node_link"><a href="' . $base_url . '/node/' . $nid . '">' . t('Send your own ecard') . '</a></div>';
+    return $output;
+  } 
+  else {
+    return NULL;
+  }
+}
+
+/*
+ *  Theme function for preparing display of archived ecard messages
+ */
+function theme_tellafriend_node_archived_message($message) {
+  $output = '<div class="tellafriend_node-archived-message">' . $message . '</div>';
+  return $output;
+}
+
+function tellafriend_node_page_form(&$form_state, $node) {
+  if ($node->tellafriend_node_max_allowed_recipients > 0) {
+    $description = 'Enter email addresses one per line, '. $node->tellafriend_node_max_allowed_recipients .' maximum.';
+  }
+  else {
+    $description = 'Enter email addresses one per line.';
+  }
+  $form['recipients'] = array(
+    '#type' => 'fieldset',
+  );
+  if ($node->tellafriend_node_include_plaxo == TRUE) {
+    $form['recipients']['plaxo'] = array(
+      '#type' => 'item',
+      '#value' => '<a href="#" onclick="showPlaxoABChooser(\'edit-recipients\',\'/tellafriend_node_plaxo_cb\'); return false"><img src="http://www.plaxo.com/images/abc/buttons/add_button.gif" alt="Add from my address book" /></a>',
+    );
+  }
+  $form['recipients']['recipients'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Recipients'),
+    '#description' => t($description),
+    '#default_value' => isset($form_state['storage']['recipients']) ? $form_state['storage']['recipients'] : '',
+  );
+  $form['message'] = array(
+    '#type' => 'fieldset',
+  );
+  if ($node->tellafriend_node_format_as_ecard == TRUE) {
+    $form['message']['ecard'] = array(
+      '#type' => 'markup',
+      '#value' => '<img src="/' . $node->tellafriend_node_ecard_fullsize_image . '" class="tellafriend_node-ecard-fullsize-image" />',
+    );
+  }
+  if ($node->tellafriend_node_subject_is_editable == TRUE) {
+    $form['message']['subject'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Message Subject'),
+      '#size' => 40,
+      '#default_value' => $node->tellafriend_node_subject,
+    );
+  }
+  else {
+    $form['message']['subject_display'] = array(
+      '#type' => 'item',
+      '#title' => t('Message Subject'),
+      '#value' => $node->tellafriend_node_subject,
+    );
+    $form['message']['subject'] = array(
+      '#type' => 'value',
+      '#value' => $node->tellafriend_node_subject,
+    );
+    $form['message']['subject_value'] = array(
+      '#type' => 'value',
+      '#value' => $node->tellafriend_node_subject,
+    );
+  }
+  if ($node->tellafriend_node_message_is_editable == TRUE) {
+    $form['message']['message_content'] = array(
+      '#type' => 'textarea',
+      '#title' => t('Message Content'),
+      '#rows' => 10,
+      '#default_value' => $node->tellafriend_node_message,
+    );
+  }
+  else {
+    $form['message']['message_content_display'] = array(
+      '#type' => 'item',
+      '#title' => t('Message Content'),
+      '#value' => check_markup($node->tellafriend_node_message),
+    );
+    $form['message']['message_content'] = array(
+      '#type' => 'value',
+      '#value' => $node->tellafriend_node_message,
+    );
+    $form['message']['message_content_value'] = array(
+      '#type' => 'value',
+      '#value' => $node->tellafriend_node_message,
+    );
+  }
+  if ($node->tellafriend_node_message_constant_text != '') {
+    $form['message']['message_constant_text'] = array(
+      '#type' => 'item',
+      '#title' => t('Message footer'),
+      '#value' => $node->tellafriend_node_message_constant_text,
+      '#description' => t('This text will appear at the bottom of your message'),
+    );
+  }
+  $form['message']['message_constant_text_value'] = array(
+    '#type' => 'value',
+    '#value' => $node->tellafriend_node_message_constant_text,
+  );
+  $form['sender'] = array(
+    '#type' => 'fieldset',
+  );
+  $form['sender']['sender_first_name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Your First Name'),
+    '#size' => 30,
+    '#required' => isset($node->tellafriend_node_first_name_is_required) ? $node->tellafriend_node_first_name_is_required : TRUE,
+    '#default_value' => isset($form_state['storage']['sender_first_name']) ? $form_state['storage']['sender_first_name'] : '',
+  );
+  $form['sender']['sender_last_name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Your Last Name'),
+    '#size' => 30,
+    '#required' => isset($node->tellafriend_node_last_name_is_required) ? $node->tellafriend_node_last_name_is_required : TRUE,
+    '#default_value' => isset($form_state['storage']['sender_last_name']) ? $form_state['storage']['sender_last_name'] : '',
+  );
+  $form['sender']['sender_email'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Your Email'),
+    '#required' => TRUE,
+    '#size' => 30,
+    '#default_value' => isset($form_state['storage']['sender_email']) ? $form_state['storage']['sender_email'] : '',
+  );
+  if ($node->tellafriend_node_show_opt_in == TRUE) {
+    $form['opt_in'] = array(
+      '#type' => 'checkbox',
+      '#title' => $node->tellafriend_node_opt_in_text,
+      '#default_value' => isset($node->tellafriend_node_opt_in_checked) ? $node->tellafriend_node_opt_in_checked : FALSE,
+    );
+  }
+  if ($node->tellafriend_node_show_opt_out == TRUE) {
+    $form['opt_out'] = array(
+      '#type' => 'checkbox',
+      '#title' => $node->tellafriend_node_opt_out_text,
+      '#default_value' => isset($node->tellafriend_node_opt_out_checked) ? $node->tellafriend_node_opt_out_checked : FALSE,
+    );
+  }
+  $form['thank_you_page'] = array(
+    '#type' => 'value',
+    '#value' => isset($node->tellafriend_node_thank_you_page) ? $node->tellafriend_node_thank_you_page : '<front>',
+  );
+  $form['nid'] = array(
+    '#type' => 'value',
+    '#value' => $node->nid,
+  );
+  $form['send_thank_you_email'] = array(
+    '#type' => 'value',
+    '#value' => isset($node->tellafriend_node_send_thank_you_email) ? $node->tellafriend_node_send_thank_you_email : 0,
+  );
+  $form['thank_you_email_subject'] = array(
+    '#type' => 'value',
+    '#value' => isset($node->tellafriend_node_thank_you_email_subject) ? $node->tellafriend_node_thank_you_email_subject : '',
+  );
+  $form['thank_you_email_message'] = array(
+    '#type' => 'value',
+    '#value' => isset($node->tellafriend_node_thank_you_email_message) ? $node->tellafriend_node_thank_you_email_message : '',
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit')
+  );
+  return $form;
+}
+
+function tellafriend_node_page_form_validate($form, &$form_state) {
+  if ($form_state['values']['recipients'] == FALSE) {
+    form_set_error('recipients', t('Please enter at least one recipient.'));
+  }
+  if ($form_state['values']['subject'] == FALSE) {
+    form_set_error('subject', t('The subject can not be blank.'));
+  }
+  if ($form['#parameters'][2]->tellafriend_node_message_is_optional == FALSE) {
+    if ($form_state['values']['message_content'] == FALSE) {
+      form_set_error('message_content', t('The message can not be blank.'));
+    }
+  }
+  if ($form_state['values']['recipients'] == TRUE) {
+    $recipients = preg_split('/\n|,|\t/', $form_state['values']['recipients']);
+    $form_state['storage']['valid_recipients'] = array();
+    $form_state['storage']['invalid_recipients'] = array();
+    foreach ($recipients as $recipient) {
+      preg_match('/[\\w\\.\\-+=*_]*@[\\w\\.\\-+=*_]*/', $recipient, $matches);
+      $email = $matches[0];
+      if ($email && valid_email_address($email)) {
+        $form_state['storage']['valid_recipients'][] = $recipient;
+      }
+      else {
+        $form_state['storage']['invalid_recipients'][] = $recipient;
+      }
+    }
+    $form_state['storage']['valid_recipients'] = array_unique($form_state['storage']['valid_recipients']);
+    $form_state['storage']['invalid_recipients'] = array_unique($form_state['storage']['invalid_recipients']);
+
+    if (count($form_state['storage']['valid_recipients']) == 0) {
+      form_set_err('recipients', t('None of the recipient email addresses are valid.'));
+    }
+  }
+  if ($form['#parameters'][2]->tellafriend_node_max_allowed_recipients > 0) {
+    if (count($form_state['storage']['valid_recipients']) > $form['#parameters'][2]->tellafriend_node_max_allowed_recipients) {
+      form_set_error('recipients', t('You have exceeded the maximum number of recipients (!number) per submission', array('!number' => $form['#parameters'][2]->tellafriend_node_max_allowed_recipients)));
+    }
+  }
+}
+
+function tellafriend_node_page_form_submit($form, &$form_state) {
+/*
+  ob_start();
+  print '<pre> Form: ';
+  print_r($form);
+  print '</pre>';
+  print '<pre>Form State: ';
+  print_r($form_state);
+  print '</pre>';
+  $result = ob_get_contents();
+  ob_end_clean;
+  drupal_set_message($result);
+*/
+
+  $errors = '';
+  $successes = '';
+  $timestamp = time();
+  $message_id = rand(1, 12001) . $timestamp;
+  $wrapper = $form['#parameters'][2]->tellafriend_node_html_mail_wrapper;
+  $sender_email = $form_state['values']['sender_email'];
+  if (valid_email_address($sender_email) != 1) {
+    drupal_set_message(t("Sender email address is invalid"));
+    return;
+  }
+  if (count($form_state['storage']['valid_recipients']) > 0) {
+    foreach ($form_state['storage']['valid_recipients'] as $recipient) {
+      if (valid_email_address($recipient) != 1) {
+        drupal_set_message(t("Recipient email address is invalid"));
+        $errors[]  = check_plain($recipient);
+      }
+      else {
+        $params = array(
+          'nid' => $form['#parameters'][2]->nid,
+          'send_ecard' => $form['#parameters'][2]->tellafriend_node_format_as_ecard,
+          'ecard_image' => $form['#parameters'][2]->tellafriend_node_ecard_fullsize_image,
+          'ecard_link' => $form['#parameters'][2]->tellafriend_node_ecard_link,
+          'message_id' => $message_id,
+          'send_multipart_email' => $form['#parameters'][2]->tellafriend_node_send_multipart_email,
+          'wrapper' => $wrapper,
+          'first_name' => check_plain($form_state['values']['sender_first_name']),
+          'last_name' => check_plain($form_state['values']['sender_last_name']),
+          'email' => $sender_email,
+          'subject' => isset($form_state['values']['subject']) ? $form_state['values']['subject'] : $form_state['values']['subject_value'],
+          'message' => check_markup(isset($form_state['values']['message_content']) ? $form_state['values']['message_content'] : $form_state['values']['message_content_value'], 2, FALSE),
+          'constant_text' => $form_state['values']['message_constant_text_value'],
+        );
+        $from = check_plain($form_state['values']['sender_first_name']) .' '. check_plain($form_state['values']['sender_last_name']) .' <'. $sender_email .'>';
+        $message = drupal_mail('tellafriend_node', 'taf', $recipient, user_preferred_language($account), $params, $from, $send = TRUE);
+        if ($message['result'] == TRUE) {
+          db_query("Insert into {tellafriend_node_results} (
+            nid,
+            message_id,
+            timestamp,
+            sender_first_name,
+            sender_last_name,
+            sender_email,
+            recipient,
+            opt_in,
+            opt_out,
+            message,
+            subject
+          ) values (
+            %d,
+            '%s',
+            %d,
+            '%s',
+            '%s',
+            '%s',
+            '%s',
+            %d,
+            %d,
+            '%s',
+            '%s'
+          )", $form_state['values']['nid'],
+            $message_id,
+            $timestamp,
+            check_plain($form_state['values']['sender_first_name']),
+            check_plain($form_state['values']['sender_last_name']),
+            check_plain($form_state['values']['sender_email']),
+            $recipient,
+            $form_state['values']['opt_in'],
+            $form_state['values']['opt_out'],
+            $message['save'],
+            $message['subject']
+          );
+          $successes[] = check_plain($recipient);
+        }
+        else {
+          $errors[]  = check_plain($recipient);
+        }
+      }
+    }
+    if ($successes) {
+      drupal_set_message($message = "Emails sent to: " . implode(', ', $successes), $type = 'status', $repeat = FALSE);
+    }
+    if ($errors) {
+      drupal_set_message($message = "Sending email to the following failed: " . implode(', ', $errors), $type = 'warning', $repeat = FALSE);
+    }
+  }
+  if ($form_state['values']['send_thank_you_email'] == TRUE) {
+    $from = isset($form['#parameters'][2]->tellafriend_node_thank_you_email_from) ? $form['#parameters'][2]->tellafriend_node_thank_you_email_from : variable_get('site_mail', '');
+    $params = array(
+      'nid' => $form['#parameters'][2]->nid,
+      'send_multipart_email' => $form['#parameters'][2]->tellafriend_node_send_multipart_email,
+      'wrapper' => $wrapper,
+      'first_name' => check_plain($form_state['values']['sender_first_name']),
+      'last_name' => check_plain($form_state['values']['sender_last_name']),
+      'email' => $sender_email,
+      'subject' => isset($form_state['values']['thank_you_email_subject']) ? $form_state['values']['thank_you_email_subject'] : '',
+      'message' => check_markup(isset($form_state['values']['thank_you_email_message']) ? $form_state['values']['thank_you_email_message'] : ''),
+    );
+    $recipient = check_plain($form_state['values']['sender_first_name']) .' '. check_plain($form_state['values']['sender_last_name']) .' <'. $sender_email .'>';
+    if ($from && $recipient) {
+      $message = drupal_mail('tellafriend_node', 'taf_thank_you', $recipient, user_preferred_language($account), $params, $from, $send = TRUE);
+    }
+  };
+  $form_state['redirect'] = $form_state['values']['thank_you_page'];
+  $form_state['storage'] = NULL;
+}
+
+/*
+ * Implementation of hook_mail
+ */
+function tellafriend_node_mail($key, &$message, $params) {
+  switch ($key) {
+    case 'taf':
+      $message['subject'] .= str_replace(array("\r", "\n"), '', check_plain($params['subject']));
+
+      if ($params['send_multipart_email'] == TRUE) {
+        $message['headers']['Content-Type'] = 'multipart/alternative; boundary="-=000000-000000"';
+        $message['headers']['Content-Transfer-Encoding'] = '8bit';
+        $message['headers']['Content-Disposition'] = 'inline';
+        $message['body'][] = 'This is a multi-part message in MIME format.';
+        $message['body'][] = '---=000000-000000' . "\n"  .'Content-Type: text/plain; charset="iso-8859-1"' . "\n";
+      }
+      if ($params['send_ecard'] == TRUE) {
+        global $base_url;
+        $sender = $params['first_name'] . ' ' . $params['last_name'] . ' [' . $params['email'] . ']'; 
+        $message['body'][] = "You have received an ecard from " . $sender . ". Follow the link below to read your ecard:\n";
+        $message['body'][] = $base_url . '/node/' . $params['nid'] . '/message/' . $params['message_id'];
+        $message['body'][] = "----------";
+      }
+      $message['body'][] = drupal_html_to_text($params['message']);
+      $message['body'][] = "----------";
+      $message['body'][] = drupal_html_to_text($params['constant_text']);
+      $message['body'][] = "----------";
+      if ($params['send_ecard'] == TRUE) {
+        global $base_url;
+        $sender = $params['first_name'] . ' ' . $params['last_name'] . ' [' . $params['email'] . ']'; 
+        $message['body'][] = "You have received an ecard from " . $sender . ". Follow the link below to read your ecard:\n";
+        $message['body'][] = $base_url . '/node/' . $params['nid'] . '/message/' . $params['message_id'];
+      }
+       
+  
+      if ($params['send_multipart_email'] == TRUE) {
+        $message['body'][] = '---=000000-000000' . "\n"  .'Content-Type: text/html; charset="iso-8859-1"' . "\n";
+        if ($params['send_ecard'] == TRUE) {
+          global $base_url;
+          $sender = $params['first_name'] . ' ' . $params['last_name'] . ' [' . $params['email'] . ']'; 
+          $additional = '<p style="margin-top: 24px; padding-top: 16px;  border-top: 1px solid #777;">You have received this ecard from ' . $sender . '.</p><p>Follow the link below to read your ecard in your browser:<br />';
+          $additional .= $base_url . '/node/' . $params['nid'] . '/message/' . $params['message_id'] . '</p>';
+          $additional .= theme('tellafriend_node_link', $params['nid']);
+          $ecard_image = '<img src="' . $base_url . '/' . $params['ecard_image'] . '" alt="' . $params['subject']  . '" style="border: 1px solid #ddd;" />';
+          if (isset($params['ecard_link'])) {
+            $ecard_image = '<a href="' . $params['ecard_link'] . '">' . $ecard_image . '</a>';
+          }
+          $message['body'][] = $additional . '<br /><br />' . preg_replace('/%content%/', $ecard_image . check_markup($params['message']) . '<div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #777;">' . $params['constant_text'] . '</div>', $params['wrapper']);
+        }
+        else {
+          $message['body'][] = preg_replace('/%content%/', check_markup($params['message']) . '<div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #777;">' . $params['constant_text'] . '</div>', $params['wrapper']);
+        }
+        $message['body'][] = '---=000000-000000--';
+      } 
+  
+      if ($params['send_ecard'] == TRUE) {
+        global $base_url;
+        $sender = $params['first_name'] . ' ' . $params['last_name'] . ' [' . $params['email'] . ']'; 
+        $additional = "<p>You have received this ecard from " . $sender . ".</p>";
+        $additional .= theme('tellafriend_node_link', $params['nid']);
+        //$message['save'] = preg_replace('/%content%/', '<img src="' . $base_url . '/' . $params['ecard_image'] . '" alt="" />' . check_markup($params['message']) . $additional . $params['constant_text'], $params['wrapper']);
+        $message['save'] = $additional . '<br /><br />' . preg_replace('/%content%/', $ecard_image . check_markup($params['message']) . '<div class="tellafriend_node-archived-message-constant-text">' . $params['constant_text'] . '</div>', $params['wrapper']);
+      }
+      break;
+    case 'taf_thank_you':
+      $message['subject'] .= str_replace(array("\r", "\n"), '', $params['subject']);
+      $message['body'][] = $params['message'];
+  }  
+/* 
+  ob_start();
+  print '<pre> Message: ';
+  print_r($message);
+  print '</pre>';
+  print '<pre>Params: ';
+  print_r($params);
+  print '</pre>';
+  $result = ob_get_contents();
+  ob_end_clean;
+  drupal_set_message($result);
+*/
+}
+
+function tellafriend_node_plaxo_cb() {
+  drupal_set_html_head('<script type="text/javascript" src="https://www.plaxo.com/ab_chooser/abc_comm.jsdyn"></script>');
+  return 'Hello';
+}
+
+function tellafriend_node_views_api() {
+  return array(
+    'api' => 2,
+  );
+}
+
+function tellafriend_node_results($nid) {
+  $node = node_load($nid);
+  global $base_url;
+  $headers = array('Message id', 'Sender first name', 'Sender last name', 'Sender email', 'Recipient', 'Opt-in', 'Opt-out', 'Message');
+  $result = db_query('SELECT message_id, sender_first_name, sender_last_name, sender_email, recipient, opt_in, opt_out FROM {tellafriend_node_results} WHERE nid = %d', $node->nid);
+  while ($row = db_fetch_array($result)) {
+    $row[] = l(t('View message'), 'node/' . $node->nid . '/message/' . $row['message_id']);
+    $data[] = $row;
+  }
+  $table = theme_table($headers, $data);
+  return $table;
+}
